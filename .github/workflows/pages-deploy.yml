@@ -14,7 +14,13 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  # 原来 group 是常量 `pages`：既不含 ref 也不含事件，于是 push 触发的部署与手工
+  # dispatch 触发的部署同组，cancel-in-progress:true 下后者会把前者中途掐掉——
+  # 而这是全仓唯一一个带真实副作用（改线上站点）的部署流。改成事件+ref 入组后：
+  # 同事件同 ref 仍互相取代（连续 push 只留最新，保留原有去重价值），跨事件不再互顶。
+  # 见 _audit_remote_ci/CONCURRENCY_B_DRILL.md 第一层反例分析；该流历史 11 次 run
+  # 全是 push、0 次 dispatch，所以 0 次互顶——这是结构缺陷的潜在面，不是已发生事故。
+  group: pages-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
