@@ -5,6 +5,8 @@ tests/release/test_build_release_metadata.py — P1-10 不可变版本 artifact 
 - 镜像 tag 规则（语义版本 / git-<sha> 合法，latest 等浮动 tag 非法）；
 - requirements 解析与 CycloneDX SBOM 构造；
 - 配置 / workflow / 模型 / comfy_kernel 快照可追溯；
+- 内核来源凭证 kernel_provenance.json：干净 checkout（目录缺失）回填 provenance，
+  无凭证时显式 N/A；目录存在时记录实时 upstream 溯源；
 - .env 合并写入保留既有变量；
 - --verify 能发现 tag 非法、SBOM 缺失与快照漂移。
 """
@@ -156,6 +158,56 @@ def test_tree_digest_detects_change(mod, tmp_root):
 
 def test_tree_digest_missing_dir(mod, tmp_root):
     assert mod.tree_digest(tmp_root, "comfy_kernel")["present"] is False
+
+
+def test_tree_digest_missing_dir_with_absent_payload(mod, tmp_root):
+    got = mod.tree_digest(tmp_root, "comfy_kernel", {"provenance": {"upstream_commit": "abc"}})
+    assert got["present"] is False and got["digest"] == ""
+    assert got["provenance"] == {"upstream_commit": "abc"}
+
+
+# ────────────────────── 内核来源凭证 ──────────────────────
+def test_read_kernel_provenance_variants(mod, tmp_root):
+    assert mod.read_kernel_provenance(tmp_root) == {}  # 文件不存在
+    p = tmp_root / "kernel_provenance.json"
+    p.write_text("not-json{{", encoding="utf-8")
+    assert mod.read_kernel_provenance(tmp_root) == {}  # 损坏降级为空
+    p.write_text(
+        json.dumps({"origin": "https://example.invalid/x.git", "upstream_commit": "deadbeef"}), encoding="utf-8"
+    )
+    assert mod.read_kernel_provenance(tmp_root)["upstream_commit"] == "deadbeef"
+
+
+def test_build_metadata_backfills_provenance_when_kernel_absent(mod, tmp_root):
+    p = tmp_root / "kernel_provenance.json"
+    p.write_text(
+        json.dumps({"origin": "https://example.invalid/x.git", "upstream_commit": "cafe1234"}), encoding="utf-8"
+    )
+    ck = mod.build_metadata(tmp_root, version="9.9.9", with_model_hash=False)["artifacts"]["comfy_kernel"]
+    assert ck["present"] is False
+    assert ck["provenance"]["upstream_commit"] == "cafe1234"
+    assert ck["provenance"]["origin"] == "https://example.invalid/x.git"
+
+
+def test_build_metadata_explicit_na_without_provenance_file(mod, tmp_root):
+    ck = mod.build_metadata(tmp_root, version="9.9.9", with_model_hash=False)["artifacts"]["comfy_kernel"]
+    assert ck["present"] is False
+    assert isinstance(ck["provenance"], str) and "N/A" in ck["provenance"]
+
+
+def test_build_metadata_records_live_upstream_when_kernel_present(mod, tmp_root):
+    (tmp_root / "comfy_kernel").mkdir()
+    ck = mod.build_metadata(tmp_root, version="9.9.9", with_model_hash=False)["artifacts"]["comfy_kernel"]
+    assert ck["present"] is True and ck["digest"]
+    # 临时目录非 git 仓库：实时溯源不可得，显式置空而非报错
+    assert ck["upstream"] is None
+    assert "provenance" not in ck
+
+
+def test_kernel_upstream_live_non_git_dir(mod, tmp_root):
+    d = tmp_root / "comfy_kernel"
+    d.mkdir()
+    assert mod.kernel_upstream_live(d) == {}
 
 
 # ────────────────────────── .env 合并 ──────────────────────────

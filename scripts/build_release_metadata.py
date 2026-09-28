@@ -11,12 +11,22 @@
   - `<out>/build_metadata.json` → Git/配置/workflow/模型/comfy_kernel 的可追溯快照
   - `<out>/sbom.json`           → CycloneDX 1.5 精简 SBOM（解析 requirements-lock.txt）
 
+comfy_kernel 溯源边界：
+  `comfy_kernel/` 是独立嵌套 git 仓库且被 .gitignore 排除（禁区，不入本仓跟踪面），
+  干净 checkout / CI 上该目录不存在，tree_digest 只能给出 present=false + 空摘要。
+  为此仓内跟踪一份来源凭证 `kernel_provenance.json`（{origin, upstream_commit,
+  captured_at}）：目录缺失时 meta.artifacts.comfy_kernel 回填 `provenance`（凭证）；
+  目录存在时额外记录 `upstream`（本机嵌套仓实时 commit/origin）。内核结构摘要
+  （digest）仍仅本机可生成——这是有意边界，跨机可比的是 commit 级溯源而非文件树摘要。
+
 用法：
     python scripts/build_release_metadata.py                    # 开发/本地：tag = git-<sha12>
     python scripts/build_release_metadata.py --version v2.0.1   # 发布：tag = 2.0.1
     python scripts/build_release_metadata.py --dev              # 等价于默认（显式声明本地构建）
     python scripts/build_release_metadata.py --verify           # 校验既有产物与工作树是否漂移
     python scripts/build_release_metadata.py --no-model-hash    # 跳过模型权重哈希（大仓库加速）
+    python scripts/build_release_metadata.py --capture-provenance  # 刷新内核来源凭证（只读查询 comfy_kernel 嵌套仓）
+    python scripts/build_release_metadata.py --root <dir>       # 测试用：替换工作树根（模拟干净 checkout）
 """
 
 from __future__ import annotations
@@ -110,15 +120,97 @@ def sha256_file(path: Path, chunk: int = 1 << 20) -> str:
     return h.hexdigest()
 
 
-def tree_digest(root: Path, rel_dir: str) -> dict:
+def read_kernel_provenance(root: Path) -> dict:
+    """读取仓内跟踪的内核来源凭证 kernel_provenance.json；缺失/损坏返回空 dict。"""
+    path = root / "kernel_provenance.json"
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):  # pragma: no cover - 损坏凭证降级为空
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def capture_kernel_provenance(root: Path = ROOT) -> int:
+    """从本机 comfy_kernel/ 嵌套仓（只读 git 查询）刷新 kernel_provenance.json。
+
+    comfy_kernel/ 是禁区：本函数只运行只读的 `git rev-parse` / `git remote` /
+    `git log`，绝不改写内核仓内容。
+    """
+    kb = root / "comfy_kernel"
+    if not kb.is_dir():
+        print("[FAIL] comfy_kernel/ 目录不存在，无法采集凭证（可在有内核的机器上运行本命令）")
+        return 1
+    commit = _git(kb, "rev-parse", "HEAD")
+    date = _git(kb, "log", "-1", "--format=%aI")
+    origin = ""
+    for line in _git(kb, "remote", "-v").splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] == "origin" and "(fetch)" in line:
+            origin = parts[1]
+            break
+    version = ""
+    ver_file = kb / "comfyui_version.py"
+    if ver_file.is_file():
+        m = re.search(r"__version__\s*=\s*[\"']([^\"']+)[\"']", ver_file.read_text(encoding="utf-8", errors="replace"))
+        version = m.group(1) if m else ""
+    doc = {
+        "schema_version": "1.0",
+        "path": "comfy_kernel",
+        "origin": origin,
+        "remote_name": "origin",
+        "upstream_commit": commit,
+        "upstream_commit_date": date,
+        "upstream_version": version,
+        "captured_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "note": (
+            "comfy_kernel/ 为独立嵌套 git 仓库且被 .gitignore 排除（禁区，不入本仓跟踪面）；"
+            "本凭证为其来源快照，干净 checkout 下 build_release_metadata.py 以此回填 "
+            "meta.artifacts.comfy_kernel.provenance。更新方式：在 comfy_kernel/ 内只读运行 "
+            "`git rev-parse HEAD` 与 `git remote -v`，或直接运行 "
+            "`python scripts/build_release_metadata.py --capture-provenance`。"
+        ),
+    }
+    if not commit or not origin:
+        print("[FAIL] 未能从 comfy_kernel/ 读到 HEAD 或 origin，不写入残缺凭证")
+        return 1
+    out = root / "kernel_provenance.json"
+    out.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    print(f"[INFO] 已刷新 {out}（upstream={origin}@{commit[:12]}）")
+    return 0
+
+
+def kernel_upstream_live(kernel_dir: Path) -> dict:
+    """本机 comfy_kernel/ 嵌套仓的实时溯源（只读）；非 git 仓库时返回空 dict。"""
+    commit = _git(kernel_dir, "rev-parse", "HEAD")
+    if not commit:
+        return {}
+    origin = ""
+    for line in _git(kernel_dir, "remote", "-v").splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] == "origin" and "(fetch)" in line:
+            origin = parts[1]
+            break
+    return {"commit": commit, "origin": origin, "commit_date": _git(kernel_dir, "log", "-1", "--format=%aI")}
+
+
+def tree_digest(root: Path, rel_dir: str, absent_payload: dict | None = None) -> dict:
     """对目录做「结构摘要」：文件名 + 体积排序后取 sha256。
 
     用于 comfy_kernel/ 这类上千文件的 vendored 目录 —— 逐个哈希过慢，
     结构摘要足以在发布追溯中证明「当时用的是哪一份上游副本」。
+
+    Args:
+        absent_payload: 目录缺失时的补充字段（如 {"provenance": 来源凭证}），
+            使干净 checkout 也能回答「当时用的是哪份上游内核」而非留空。
     """
     base = root / rel_dir
     if not base.is_dir():
-        return {"path": rel_dir, "present": False, "file_count": 0, "total_bytes": 0, "digest": ""}
+        out = {"path": rel_dir, "present": False, "file_count": 0, "total_bytes": 0, "digest": ""}
+        if absent_payload:
+            out.update(absent_payload)
+        return out
     entries: list[tuple[str, int]] = []
     for p in base.rglob("*"):
         if p.is_file():
@@ -246,6 +338,21 @@ def build_metadata(
     sha = git_sha(root)
     tag = derive_image_tag(sha, version)
     lock = root / "requirements-lock.txt"
+    provenance = read_kernel_provenance(root)
+    kb_dir = root / "comfy_kernel"
+    kernel_kwargs: dict = {}
+    if kb_dir.is_dir():
+        # 目录在场：摘要可全量生成；同时记录实时溯源，并与入库凭证交叉标注一致性
+        live = kernel_upstream_live(kb_dir)
+        kernel_kwargs["upstream"] = live or None
+        if live and provenance:
+            kernel_kwargs["provenance_matches"] = live.get("commit") == provenance.get("upstream_commit")
+    else:
+        # 目录缺失（干净 checkout / CI）：回填入库来源凭证，而非留下空白
+        kernel_kwargs["provenance"] = provenance or "N/A（仓内无 kernel_provenance.json，内核溯源不可回答）"
+    kernel = tree_digest(root, "comfy_kernel", kernel_kwargs if not kb_dir.is_dir() else None)
+    if kb_dir.is_dir():
+        kernel.update(kernel_kwargs)
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
@@ -265,7 +372,7 @@ def build_metadata(
             "config": config_snapshot(root),
             "workflows": workflow_snapshot(root),
             "model": model_manifest(root, with_hash=with_model_hash),
-            "comfy_kernel": tree_digest(root, "comfy_kernel"),
+            "comfy_kernel": kernel,
         },
         "requirements_lock_sha256": sha256_file(lock) if lock.is_file() else "",
     }
@@ -338,12 +445,22 @@ def main() -> int:
     ap.add_argument("--no-model-hash", action="store_true", help="跳过模型权重 sha256（仅记录体积）")
     ap.add_argument("--verify", action="store_true", help="校验模式：检查产物是否漂移，不写文件")
     ap.add_argument("--strict", action="store_true", help="配合 --verify：额外要求工作树干净（正式发布门禁）")
+    ap.add_argument("--root", default="", help="测试用：替换工作树根（如指向不存在目录以模拟干净 checkout）")
+    ap.add_argument(
+        "--capture-provenance",
+        action="store_true",
+        help="从本机 comfy_kernel/ 嵌套仓只读采集并刷新 kernel_provenance.json",
+    )
     args = ap.parse_args()
 
-    out_dir = ROOT / args.out
+    root = Path(args.root).resolve() if args.root else ROOT
+    out_dir = root / args.out
+
+    if args.capture_provenance:
+        return capture_kernel_provenance(root)
 
     if args.verify:
-        problems = verify(ROOT, out_dir, strict=args.strict)
+        problems = verify(root, out_dir, strict=args.strict)
         if problems:
             print("[FAIL] 发布元数据校验未通过：")
             for p in problems:
@@ -353,7 +470,7 @@ def main() -> int:
         return 0
 
     version = "" if args.dev else args.version
-    meta = build_metadata(ROOT, version=version, with_model_hash=not args.no_model_hash)
+    meta = build_metadata(root, version=version, with_model_hash=not args.no_model_hash)
     tag = meta["image_tag"]
 
     if not is_valid_image_tag(tag):
@@ -364,12 +481,12 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "build_metadata.json").write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    lock = ROOT / "requirements-lock.txt"
+    lock = root / "requirements-lock.txt"
     lock_text = lock.read_text(encoding="utf-8") if lock.is_file() else ""
     sbom = build_sbom(lock_text, tag, meta["git"]["sha"])
     (out_dir / "sbom.json").write_text(json.dumps(sbom, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    env_path = ROOT / ".env"
+    env_path = root / ".env"
     env_text = merge_env_file(env_path, {"IMAGE_TAG": tag, "IMAGE_DIGEST": args.digest})
     env_path.write_text(env_text, encoding="utf-8")
 
@@ -377,10 +494,20 @@ def main() -> int:
     print(f"[INFO] Git SHA           : {meta['git']['sha'] or 'unknown'}{' (dirty)' if meta['git']['dirty'] else ''}")
     print(f"[INFO] SBOM 组件数       : {len(sbom['components'])}")
     print(f"[INFO] model 文件数      : {meta['artifacts']['model']['file_count']}")
-    print(
-        f"[INFO] comfy_kernel 摘要 : {meta['artifacts']['comfy_kernel']['digest'][:16] or 'N/A'}"
-        f" ({meta['artifacts']['comfy_kernel']['file_count']} files)"
-    )
+    kb = meta["artifacts"]["comfy_kernel"]
+    if kb["present"]:
+        print(
+            f"[INFO] comfy_kernel 摘要 : {kb['digest'][:16] or 'N/A'}"
+            f" ({kb['file_count']} files, upstream={str((kb.get('upstream') or {}).get('commit', ''))[:12]})"
+        )
+    else:
+        prov = kb.get("provenance")
+        if isinstance(prov, dict):
+            print(
+                f"[INFO] comfy_kernel    : 目录缺失，来源凭证 {prov.get('origin', 'N/A')}@{str(prov.get('upstream_commit', ''))[:12] or 'N/A'}"
+            )
+        else:
+            print(f"[INFO] comfy_kernel    : 目录缺失，{prov}")
     print(f"[INFO] 已写出 {out_dir / 'build_metadata.json'}")
     print(f"[INFO] 已写出 {out_dir / 'sbom.json'}")
     print("[INFO] 已更新 .env（IMAGE_TAG / IMAGE_DIGEST）")
