@@ -14,7 +14,7 @@
 
 *浅色主题 — 生图工作台主页 / 高级参数 / 预设管理 / 历史记录 / 图片展示 / 批量模式*
 
-> 界面截图：主页、高级参数、预设管理、历史记录、图片展示、批量模式共六张，属本地保留素材、未随仓库发布，故此处不内嵌图片链接；在线可点 [生图工作台演示页](https://reserendipity.github.io/Image_MultiModel/)。
+> 界面截图：主页、高级参数、预设管理、历史记录、图片展示、批量模式共六张，可在线查看 [生图工作台演示页](https://reserendipity.github.io/Image_MultiModel/)。
 
 ---
 
@@ -87,11 +87,7 @@
    start.bat
    ```
 
-> 💡 **检测顺序说明**：`install.bat` 和 `start.bat` 会按以下优先级查找 Python：
-> 1. 常见系统安装路径（`C:\Python312\`、`C:\Program Files\Python312\`、用户目录下的 Python）
-> 2. 系统 PATH 中注册的 `python` 命令（排除 IDE/编辑器自带的 Python）
-> 3. 项目内的 WinPython（`WPy64-312101\`、`WinPython` 等目录）
-> 4. 共享兄弟项目的 WinPython（Seedvr2 / TTS_MultiModel）
+> 💡 `install.bat` / `start.bat` 会自动检测系统 Python。
 
 ---
 
@@ -123,7 +119,7 @@ docker run --gpus all -p 8288:8288 \
 - **`sys.path` 注入**：通过 `native/source.ensure_loaded()` 把该目录注入 `sys.path[0]`，在同一进程内调用 `comfy.sd` / `comfy.samplers` 完成推理。
 - **统一引擎 key**：`config.yaml → models.engines.z_image_turbo_native`（`backend: native`）。
 
-> ℹ️ 引擎与 comfy_kernel 的架构分工详见本地保留的 AI 协作规范（未随仓库发布）；本文件的公开硬约束子集见 [docs/AGENT_CONSTRAINTS.md](docs/AGENT_CONSTRAINTS.md)。
+> ℹ️ 引擎与 comfy_kernel 的架构分工，公开硬约束子集见 [docs/AGENT_CONSTRAINTS.md](docs/AGENT_CONSTRAINTS.md)。
 
 ---
 
@@ -142,8 +138,8 @@ Image_MultiModel/
 │       ├── locales/             # i18n 五语言 JSON（zh/zh-tw/en/ja/ko）
 │       ├── watermark.py         # DCT 频域不可感知数字水印
 │       └── history_db.py / task_queue.py / gpu_utils.py
-├── comfy_kernel/                 # vendored ComfyUI 内核（gitignored：本地保留、不随仓库分发，克隆后按 docs/GPL_COMPLIANCE.md 履行 GPL-3.0 义务自行获取）
-├── workflows/                    # 工作流参考目录（gitignored 空目录，clean_launch 自动重建；引擎由代码构建工作流）
+├── comfy_kernel/                 # vendored ComfyUI 内核（gitignored，不随仓库分发，克隆后按 docs/GPL_COMPLIANCE.md 自行获取）
+├── workflows/                    # 工作流参考目录（gitignored，clean_launch 自动重建）
 ├── pretrained_models/            # 模型检查点存放（portable 模式，gitignored）
 ├── desktop/                      # 桌面分发：src-tauri（Tauri v2 壳）+ installer/setup.nsi（NSIS）
 ├── release/                      # 发布元数据（build_metadata.json、sbom.json）
@@ -170,20 +166,6 @@ Image_MultiModel/
 | 数据 | SQLite（历史）、YAML（配置）、JSON（工作流） |
 | 安全 | PathGuard + CSRF + Rate Limit + Integrity Check + DCT Watermark |
 | 工具链 | pytest + Hypothesis + factory-boy、ruff、coverage |
-
----
-
-## 脚本检测优先级（三个项目一致）
-
-所有 `.bat` 脚本（`start.bat` / `install.bat`）按**相同的优先级顺序**查找 Python 解释器：
-
-| 优先级 | 类型 | 说明 |
-|---|---|---|
-| 1️⃣ 最高 | **系统 Python** | 按路径匹配：`C:\Python312\` → `C:\Python311\` → `C:\Python310\` → 程序 Files → 用户目录 |
-| 2️⃣ 次高 | **PATH 注册** | `where python` 的结果（自动排除 IDE / TRAE 等编辑器自带的嵌入式 Python） |
-| 3️⃣ 次低 | **项目内置 WinPython** | `WPy64-312101\` / `WinPython64-*\` / `WinPython\` |
-| 4️⃣ 最低 | **兄弟项目共享** | Seedvr2 / TTS_MultiModel 的 WinPython（仅 Image_MultiModel 启用） |
-| ❌ 全部失败 | — | 打印两条安装路径（系统 Python / WinPython），暂停并退出 |
 
 ---
 
@@ -267,26 +249,20 @@ python -m pytest tests/e2e -m e2e
 - 本项目为**独立开源项目**，基于阿里通义实验室（Tongyi-MAI）开源模型 **Z-Image-Turbo**（Apache-2.0）构建，与阿里巴巴集团及通义品牌**无隶属关系**，并非通义官方出品。
 - "Z-Image" 为阿里通义实验室的官方模型品牌名，本项目中仅作**描述性引用**以说明所集成的引擎，不暗示本项目的官方身份或获得官方背书。
 - 项目内置的 SeedVR2 超分组件同为第三方集成，相关归属与免责说明见 [SeedVR2 项目声明](https://github.com/ReSerendipity/SeedVR2-lite)。
-> **接入新模型时：更新本表 + `config.yaml` 中对应引擎的 `license` 字段。**
 
 | 模型 | 引擎 key | 权重许可 | 商用 | 说明 |
 |---|---|---|---|---|
 | Z-Image Turbo（阿里通义） | `z_image_turbo_native` | Apache-2.0 | ✅ 可商用 | 默认引擎 |
 | SeedVR2（字节跳动，超分组件） | —（工作流内置） | Apache-2.0 | ✅ 可商用 | 见 NOTICE |
 
-**新增模型检查清单**：① 在 `config.yaml` 填写真实 `license` 字段；② 更新本表；③ 非商用模型（NC/自定义许可）不得作为商用发行物默认引擎、不随商业发行物分发；④ 使用前核对许可最新版本。
-
 ## 许可证
 
-本项目采用 [Apache License 2.0](LICENSE) 开源协议。---
+本项目采用 [Apache License 2.0](LICENSE) 开源协议。
 
-## 桌面版（Windows，P1-3）
+---
 
-桌面分发提供安装器与增量更新两条路径：
+## 桌面版（Windows）
 
-- **安装器**：`desktop/installer/setup.nsi`（NSIS 3.09）编译 `ImageMultiModel-Setup-v{ver}.exe`，与数据分卷（`ImageMultiModel-Data.7z.001` 起）同目录；自动终止运行中的壳与 Python 子进程后安装。
-- **桌面壳**：`desktop/src-tauri`（Tauri v2）——单实例、系统托盘、崩溃自动重启、窗口状态记忆、隐藏控制台；启动侧载 Python（`app/runtime` 或开发环境 `.venv`）并管理后端生命周期（健康检查 `/api/system/health` 的 `security.integrity` 字段，完整性失败在托盘告警）。
-- **增量更新**：应用代码打包 `scripts/package_app.py` → `app-v{ver}.zip` + SHA256；壳内更新器拉取 GitHub Release `shell-update.json`，验 SHA256 后原子换载 `app/`（保留 `runtime/model/data/logs` 与 `config.yaml`、`.watermark_key`）。
-- **分卷发布**：`scripts/split_release_volumes.py` 按 ≤900MB 切片 + `SHA256SUMS.txt` 全覆校验。
-- **质量门禁**：`scripts/release_gate.py`（构建→静态→测试→清单签名→发布物）与 `scripts/diag_portable_verify.py`（安装环境验签/完整性诊断）。
-- **分层与安全文档**：`docs/桌面分发分层定案-20260910.md`、`docs/闭源编译评估-Cython-pyd-20260910.md`（本地文档，未随仓库发布）。
+> 🚧 **开发中**：Windows 桌面版正在开发，尚未正式发布。
+
+桌面版将提供安装器与自动更新；正式发布后可从 [GitHub Releases](https://github.com/ReSerendipity/Image_MultiModel/releases) 下载获取，届时在本节补充安装与使用说明。
