@@ -1,12 +1,12 @@
 {
   "schema_version": "1.0",
-  "generated_at": "2026-09-01T06:00:46+00:00",
-  "image_tag": "git-8c3823dcfe60",
+  "generated_at": "2026-09-25T01:03:23+00:00",
+  "image_tag": "git-7fa3cc8abe47",
   "image_tag_valid": true,
   "git": {
-    "sha": "8c3823dcfe60eecc62f2e809e445da4927a35eb8",
-    "short_sha": "8c3823dcfe60",
-    "describe": "v1.5.1-48-g8c3823d-dirty",
+    "sha": "7fa3cc8abe47251f7691011e2bc8eaacbdf8166d",
+    "short_sha": "7fa3cc8abe47",
+    "describe": "v1.2.2-59-g7fa3cc8-dirty",
     "dirty": true
   },
   "build": {
@@ -17,122 +17,60 @@
     "config": {
       "path": "config.yaml",
       "present": true,
-      "sha256": "c4d047c0d0c2a49b2ff8ebc4a8c5c88427c4529debd02d9b1e245b6ba28ef0bb",
-      "bytes": 8444
+      "sha256": "ac40caefcc7d604885afa00d914960581c4c90442950f89c651a727b9d7f1dc3",
+      "bytes": 6063
     },
     "workflows": {
       "path": "workflows",
-      "file_count": 3,
-      "files": [
-        {
-          "path": "workflows/flux1_dev_fp8.json",
-          "sha256": "7c0c959c0f03a58edc2b40051f96c0f9aa3d43f837375dbb172fa7719941650f"
-        },
-        {
-          "path": "workflows/flux2_klein_9b.json",
-          "sha256": "0c2fa0ea4b007ecdbcf035d424b72c57aaf754cd665d0f0dcf88de580e6dfba7"
-        },
-        {
-          "path": "workflows/Z_image_turbo.json",
-          "sha256": "74a03fd5795c45e3e28362955918ad237d50b8b4accc188f73113764af39f8a2"
-        }
-      ]
+      "file_count": 0,
+      "files": []
     },
     "model": {
       "path": "model",
-      "file_count": 16,
-      "total_bytes": 86029175220,
-      "hashed": true,
+      "file_count": 5,
+      "total_bytes": 3715,
+      "hashed": false,
       "files": [
         {
           "path": "loras/put_loras_here",
           "bytes": 0,
-          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          "sha256": ""
         },
         {
           "path": "README.md",
           "bytes": 3715,
-          "sha256": "1d24c88eab5263d0469176ab5de42b15ce03b839971839808ec4cbfbc1ec36b2"
-        },
-        {
-          "path": "text_encoders/FLUX.2-klein-9b/qwen_3_8b_fp8mixed.safetensors",
-          "bytes": 8664848742,
           "sha256": ""
         },
         {
           "path": "text_encoders/put_text_encoders_here",
           "bytes": 0,
-          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-        },
-        {
-          "path": "text_encoders/Z_image(turbo)/qwen_3_4b_fp8_mixed.safetensors",
-          "bytes": 5631994051,
-          "sha256": ""
-        },
-        {
-          "path": "unet/FLUX.2-klein-9b-fp8/BigLoveKlein2_fp8.safetensors",
-          "bytes": 9078604336,
-          "sha256": ""
-        },
-        {
-          "path": "unet/FLUX.2-klein-9b-fp8/DarkBeast-Klein9b-V2-BFS-FP8.safetensors",
-          "bytes": 9078610848,
-          "sha256": ""
-        },
-        {
-          "path": "unet/FLUX.2-klein-9b-fp8/flux-2-klein-9b-kv-fp8.safetensors",
-          "bytes": 9818935984,
-          "sha256": ""
-        },
-        {
-          "path": "unet/FLUX.2-klein-9b-fp8/Flux.2 Klein 9B fp8 darkBeast.safetensors",
-          "bytes": 12309959360,
           "sha256": ""
         },
         {
           "path": "unet/put_unet_here",
           "bytes": 0,
-          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-        },
-        {
-          "path": "unet/Z-image-bf16/z_image_bf16.safetensors",
-          "bytes": 12309866400,
           "sha256": ""
-        },
-        {
-          "path": "unet/Z-image_turbo-bf16/z_image_turbo_bf16.safetensors",
-          "bytes": 12309866400,
-          "sha256": ""
-        },
-        {
-          "path": "unet/Z-image_turbo-bf16/zimageTurboNSFWByStable_2602NSFWFP8.safetensors",
-          "bytes": 6154969704,
-          "sha256": ""
-        },
-        {
-          "path": "vae/FLUX.1-dev(Z-image(turbo))/ae.safetensors",
-          "bytes": 335304388,
-          "sha256": "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38"
-        },
-        {
-          "path": "vae/FLUX.2-klein-9b/flux2-vae.safetensors",
-          "bytes": 336211292,
-          "sha256": "868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3"
         },
         {
           "path": "vae/put_vae_here",
           "bytes": 0,
-          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          "sha256": ""
         }
       ]
     },
     "comfy_kernel": {
       "path": "comfy_kernel",
       "present": true,
-      "file_count": 1555,
-      "total_bytes": 148675636,
-      "digest": "78fca9016f0e2bcc57b8b3b4d6e085e7ad458a029765a039c8200ec0b003c8b9"
+      "file_count": 2051,
+      "total_bytes": 156502608,
+      "digest": "8b44274739bb93311977bf2336bd1ed15748f9bf751063a3de95f14cc4342544",
+      "upstream": {
+        "commit": "9883be7c5ec4082a090347d461bb0bd4131516f5",
+        "origin": "https://github.com/comfyanonymous/ComfyUI.git",
+        "commit_date": "2026-08-17T09:53:58+08:00"
+      },
+      "provenance_matches": true
     }
   },
-  "requirements_lock_sha256": "a05ea0786f9caf0495c7ac7615f6863686a9f6d2562c57717e85c668176a4f6e"
+  "requirements_lock_sha256": "c23bbe412ee0e6c0d2fce6c0812ceee5f14ff21377575768d66049560c9d71ab"
 }

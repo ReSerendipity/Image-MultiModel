@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0",
+  "path": "comfy_kernel",
+  "origin": "https://github.com/comfyanonymous/ComfyUI.git",
+  "remote_name": "origin",
+  "upstream_commit": "9883be7c5ec4082a090347d461bb0bd4131516f5",
+  "upstream_commit_date": "2026-08-17T09:53:58+08:00",
+  "upstream_version": "0.32.0",
+  "captured_at": "2026-09-25T01:04:17+00:00",
+  "note": "comfy_kernel/ 为独立嵌套 git 仓库且被 .gitignore 排除（禁区，不入本仓跟踪面）；本凭证为其来源快照，干净 checkout 下 build_release_metadata.py 以此回填 meta.artifacts.comfy_kernel.provenance。更新方式：在 comfy_kernel/ 内只读运行 `git rev-parse HEAD` 与 `git remote -v`，或直接运行 `python scripts/build_release_metadata.py --capture-provenance`。"
+}

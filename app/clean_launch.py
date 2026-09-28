@@ -130,9 +130,11 @@ def check_config():
 def check_workflows():
     """检查工作流文件存在（目录缺失时自动创建，不再致命）。
 
-    WHY 改为非致命：``workflows/`` 存放用户自己的 ComfyUI 工作流，已被
-    ``.gitignore`` 的 ``/workflows/`` 排除在版本控制之外。因此 CI runner 上
-    checkout 后该目录必然不存在，而 ``Performance Benchmarks`` 与 ``Startup
+    WHY 改为非致命：``workflows/`` 存放用户自己的 ComfyUI 工作流，随仓库
+    分发不了——参考 JSON 已在清理提交中删除，目录当前未被 git 跟踪，也不在
+    ``.gitignore`` 内（2026-09-25 修正：旧注释断言的 ``/workflows/`` 排除规则不存在，
+    ``git check-ignore`` 无匹配），
+    干净 checkout 后该目录必然不在磁盘。而 ``Performance Benchmarks`` 与 ``Startup
     Smoke`` 两个 job 都要启动应用 —— 结果每次推送都卡在这一行
     ``sys.exit(1)`` 上，CI 恒定报红，与被测代码质量毫无关系。
 
@@ -140,7 +142,7 @@ def check_workflows():
     """
     wf_dir = PROJECT_ROOT / "workflows"
     if not wf_dir.exists():
-        # CI / 全新克隆环境：目录随仓库分发不了（已被 gitignore），按需创建
+        # CI / 全新克隆环境：目录不随仓库分发（参考 JSON 已删、当前未被跟踪），按需创建
         wf_dir.mkdir(parents=True, exist_ok=True)
         print(f"[WARN] workflows/ directory not found, created: {wf_dir}")
     jsons = list(wf_dir.glob("*.json"))
