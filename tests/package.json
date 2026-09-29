@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "screenshots": "node capture-screenshots.js",
-    "test:frontend": "node frontend/smoke.js"
+    "test:frontend": "node frontend/smoke.js && node frontend/agent_chat.js"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",

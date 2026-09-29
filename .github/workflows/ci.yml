@@ -346,6 +346,11 @@ jobs:
       - name: Run frontend smoke tests (jsdom)
         run: |
           node tests/frontend/smoke.js
+      # Agent 对话面板（chat.js）冒烟：覆盖 /api/tasks/{id} 的 history_db 行结构
+      # 兼容（小写 status + outputs[].path）与 SSE 分片解码，无需模板渲染。
+      - name: Run agent chat panel tests (jsdom)
+        run: |
+          node tests/frontend/agent_chat.js
       # M-06 XSS 转义回归（纯 Node，无 jsdom 依赖）。
       # 此前 CI 只跑 smoke.js，这份安全回归测试从未被纳入流水线。
       - name: Run frontend XSS regression

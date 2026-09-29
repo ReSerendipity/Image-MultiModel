@@ -16,12 +16,11 @@ from app.integrated_app.app_server import create_app
 @pytest.fixture(scope="module")
 def client():
     with TestClient(create_app(), raise_server_exceptions=False) as c:
-        _csrf_r = c.get('/api/health')
-        _csrf_tok = _csrf_r.headers.get('X-CSRF-Token', '')
+        _csrf_r = c.get("/api/health")
+        _csrf_tok = _csrf_r.headers.get("X-CSRF-Token", "")
         if _csrf_tok:
-            c.headers['X-CSRF-Token'] = _csrf_tok
+            c.headers["X-CSRF-Token"] = _csrf_tok
         yield c
-
 
 
 class TestEngineList:
@@ -45,8 +44,19 @@ class TestEngineList:
         if r.status_code == 200:
             engines = r.json()["engines"]
             first = engines[0]
-            for key in ("name", "display_name", "display_name_en", "ready", "state", "active",
-                         "vram_gb", "ram_gb", "default_precision", "supported_features", "tags"):
+            for key in (
+                "name",
+                "display_name",
+                "display_name_en",
+                "ready",
+                "state",
+                "active",
+                "vram_gb",
+                "ram_gb",
+                "default_precision",
+                "supported_features",
+                "tags",
+            ):
                 assert key in first, f"Missing field '{key}' in engine entry"
 
     def test_active_engine_in_list(self, client: TestClient) -> None:
@@ -78,6 +88,44 @@ class TestEngineLoad:
             body = r.json()
             assert body["engine_name"] == "z_image_turbo_native"
             assert body["status"] in ("loaded", "error", "loading")
+
+    def test_load_succeeds_despite_none_factory_placeholder(self, client: TestClient) -> None:
+        """回归：``_factories[name] = None`` 延迟注册占位不得让加载链拿到 None。
+
+        此前 ``engine_routes.load_engine`` 用 ``name not in registry._factories``
+        判空——占位键存在 ⇒ 条件恒假 ⇒ 真实工厂永不注册 ⇒ ``registry.get()`` 返回
+        None ⇒ ``None.load()`` 报 ``'NoneType' object has no attribute 'load'``。
+        修复后必须真正走到 ``status == "loaded"``。
+        """
+        r = client.post("/api/engine/load", json={"engine_name": "z_image_turbo_native"})
+        assert r.status_code == 200, f"Got {r.status_code}: {r.text[:200]}"
+        body = r.json()
+        assert body["status"] == "loaded", f"未真正加载：{body}"
+        assert "NoneType" not in body.get("message", "")
+        assert "has no attribute" not in body.get("message", "")
+
+
+class TestEngineRegistryFactorySemantics:
+    """InMemoryEngineRegistry.has_factory — None 占位视为「无可用工厂」"""
+
+    def test_none_placeholder_is_not_a_factory(self) -> None:
+        from app.integrated_app.engine_interface import InMemoryEngineRegistry
+
+        reg = InMemoryEngineRegistry()
+        reg._factories["lazy"] = None  # type: ignore[assignment]  # 延迟注册占位
+        assert "lazy" in reg._factories  # 旧判空方式（`in`）会误判为已注册
+        assert reg.has_factory("lazy") is False
+        assert reg.get("lazy") is None
+
+        reg.register("lazy", lambda **_: object())
+        assert reg.has_factory("lazy") is True
+        assert reg.get("lazy") is not None
+
+    def test_missing_factory(self) -> None:
+        from app.integrated_app.engine_interface import InMemoryEngineRegistry
+
+        reg = InMemoryEngineRegistry()
+        assert reg.has_factory("nope") is False
 
 
 class TestEngineUnload:

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -18,12 +17,39 @@ from ..config import get_config
 from ..engine_interface import get_registry
 from ..i18n import get_error_message
 from ..model_manager import ModelManager, ModelState, get_model_manager
-from ..native.engine import NativeEngine
+from ..model_registry import get_model_registry
 from ..sse import get_sse_bus
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/engine", tags=["engine"])
+
+
+def _ensure_engine(registry: Any, engine_name: str, eng_cfg: Any) -> Any:
+    """返回可用引擎实例；工厂缺失或为 ``None`` 占位时按 backend 构建并注册。
+
+    Bugfix（本轮）：``model_registry.init_from_config`` 把每个引擎注册为
+    ``_factories[name] = None`` 的「延迟注册」占位。此前本模块用
+    ``if engine_name not in registry._factories`` 判空 —— 占位键存在，条件恒为
+    假，于是真正的工厂永不注册，``registry.get()`` 一直返回 ``None``，
+    加载链在 ``model_mgr.load_engine(name, None)`` → ``None.load()`` 处报
+    ``'NoneType' object has no attribute 'load'``。改用 ``has_factory()`` 后，
+    占位与缺失两种情形都会补上真实工厂。
+
+    另外，工厂改为走 ``ModelRegistry.create_engine_instance``（按 ``backend``
+    分发），而非此前硬编码的 NativeEngine，避免 ``backend: diffusers`` 的引擎
+    被 UI 加载按钮构建成 native 引擎。
+    """
+    if not registry.has_factory(engine_name):
+        instance = get_model_registry().create_engine_instance(
+            engine_name=engine_name,
+            display_name=eng_cfg.display_name,
+            display_name_en=eng_cfg.display_name_en,
+            backend=getattr(eng_cfg, "backend", "native"),
+            config=eng_cfg.model_dump(),
+        )
+        registry.register(engine_name, lambda **_: instance)
+    return registry.get(engine_name)
 
 
 async def switch_engine_with_rollback(
@@ -159,23 +185,6 @@ async def load_engine(req: EngineLoadRequest, request: Request) -> dict[str, Any
     model_mgr = get_model_manager()
     sse_bus = get_sse_bus()
 
-    # 注册引擎工厂（如果未注册）——完全脱离 ComfyUI，统一原生进程内引擎
-    if engine_name not in registry._factories:
-        comfy_source_dir = str(Path(cfg.project_root) / eng_cfg.comfy_source_dir).replace("\\", "/")
-
-        def native_factory(**kwargs):
-            return NativeEngine(
-                name=engine_name,
-                display_name=eng_cfg.display_name,
-                display_name_en=eng_cfg.display_name_en,
-                config={
-                    "comfy_source_dir": comfy_source_dir,
-                    "custom_nodes_dir": eng_cfg.custom_nodes_dir,
-                },
-            )
-
-        registry.register(engine_name, native_factory)
-
     # 注册 SSE 观察者（如果未注册）
     if not model_mgr._observers:
         main_loop = asyncio.get_event_loop()
@@ -195,7 +204,17 @@ async def load_engine(req: EngineLoadRequest, request: Request) -> dict[str, Any
 
         model_mgr.register_observer(on_model_status)
 
-    engine = registry.get(engine_name)
+    def resolve_engine(name: str) -> Any:
+        """按需返回真实引擎实例（含切换前旧引擎的卸载路径）。"""
+        target_cfg = cfg.models.engines.get(name)
+        if target_cfg is None:
+            # 不在配置中的引擎无从构建；已注册真实工厂时仍允许复用其实例
+            return registry.get(name) if registry.has_factory(name) else None
+        return _ensure_engine(registry, name, target_cfg)
+
+    engine = resolve_engine(engine_name)
+    if engine is None:  # pragma: no cover - 工厂已补齐，正常路径不可达
+        raise HTTPException(500, detail=f"engine_factory_unavailable: {engine_name}")
 
     # P1·韧性：加载/切换 + 失败回滚（消除「无引擎可用」空窗）
     result = await switch_engine_with_rollback(
@@ -205,7 +224,7 @@ async def load_engine(req: EngineLoadRequest, request: Request) -> dict[str, Any
         eng_cfg,
         load_engine=model_mgr.load_engine,
         unload_engine=model_mgr.unload_engine,
-        get_engine=registry.get,
+        get_engine=resolve_engine,
     )
     return result
 

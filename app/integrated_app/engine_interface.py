@@ -193,6 +193,17 @@ class InMemoryEngineRegistry:
         self._configs[name] = config or {}
         logger.info(f"Engine registered: {name}")
 
+    def has_factory(self, name: str) -> bool:
+        """是否已注册**可实例化**的工厂。
+
+        ``model_registry.init_from_config`` 以 ``_factories[name] = None`` 做
+        「延迟注册」占位，此时 ``get()`` 会返回 ``None``（表示尚无实例）。
+        调用方若需要「能拿到实例」，必须用本方法判空而不是 ``name in _factories``
+        ——后者对 None 占位也返回 True，会让调用链拿到 None 并在
+        ``engine.load()`` 处炸成 ``'NoneType' object has no attribute 'load'``。
+        """
+        return self._factories.get(name) is not None
+
     def get(self, name: str) -> ImageEngine | None:
         """获取引擎实例（懒加载）。
 
