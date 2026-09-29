@@ -1,0 +1,17 @@
+display-name-zh: Qwen 图像提示词撰写
+version: 0.1.0
+tag-en: Prompting
+tag-cn: 提示词
+complete-tags-en:
+- Prompting / Image Generation
+- Prompting / Creative Writing
+complete-tags-cn:
+- 提示词 / 图像生成
+- 提示词 / 创意写作
+summary-en: Write Qwen-Image / Qwen-Image-2.0 image generation prompts.
+summary-cn: 编写 Qwen-Image / Qwen-Image-2.0 图像生成提示词，遵循模型卡与阿里云 API 文档的文字渲染、negative_prompt 与尺寸规范（质量后缀为可选社区习惯，非官方）。
+desc-en: "Designed for users who want to write effective Qwen-Image / Qwen-Image-2.0 image generation prompts. Compiled from the official model card on HuggingFace and the Alibaba Cloud API documentation. Key rules include: wrapping text to be rendered in double quotes (e.g. \"Qwen Coffee 😊 $2 per cup\"), optionally appending positive_magic quality suffixes (community practice, NOT official; English: \", Ultra HD, 4K, cinematic composition.\"; Chinese: \", 超清,4K,电影级构图.\"), using natural language long descriptions with spatial layout, text, and character details, watching the CJK trip-wire (any Chinese character routes the whole prompt through the Chinese rewriter), leaving negative_prompt as a space when not needed, enabling prompt_extend by default (true), and supporting sizes of 2048*2048 (1:1), 2688*1536 (16:9), 1536*2688 (9:16), 2368*1728 (4:3), and 1728*2368 (3:4) for the 2.0 series. The qwen-image-2.0 series supports up to 1300 tokens for the text field."
+desc-cn: "面向希望编写高质量 Qwen-Image / Qwen-Image-2.0 图像生成提示词的用户。整理自官方 HuggingFace 模型卡与阿里云 API 文档。核心规则包括：需要渲染的文字用双引号包起来（如 \"Qwen Coffee 😊 $2 per cup\"）、可选追加 positive_magic 质量后缀（社区习惯、非官方；英文 \", Ultra HD, 4K, cinematic composition.\" / 中文 \", 超清,4K,电影级构图.\"）、用自然语言编写包含空间布局、文字、人物的长句描述、注意 CJK 触发陷阱（只要出现一个汉字整段会被中文改写器翻译）、不需要 negative_prompt 时留空格 \" \"、prompt_extend 默认开启 true、2.0 系列支持 2048*2048(1:1) / 2688*1536(16:9) / 1536*2688(9:16) / 2368*1728(4:3) / 1728*2368(3:4) 五种尺寸。qwen-image-2.0 系列 text 字段最长 1300 tokens。"
+author-en: Local User
+author-cn: 本地用户
+source: community

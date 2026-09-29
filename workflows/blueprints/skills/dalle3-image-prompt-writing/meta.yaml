@@ -1,0 +1,17 @@
+display-name-zh: DALL·E 3 图像提示词撰写
+version: 0.1.0
+tag-en: Prompting
+tag-cn: 提示词
+complete-tags-en:
+- Prompting / Image Generation
+- Prompting / Creative Writing
+complete-tags-cn:
+- 提示词 / 图像生成
+- 提示词 / 创意写作
+summary-en: Write DALL·E 3 image generation prompts.
+summary-cn: 编写 DALL·E 3 图像生成提示词，遵循官方自然语言最佳实践，引号包文字、否定用正向表述、ChatGPT 自动增强。
+desc-en: "Designed for users who want to write effective DALL·E 3 prompts. Compiled from OpenAI's official guidance and community best practices. Core rules include: write in pure natural language with no special syntax (no --ar, --no, or weight tokens); do NOT use a negative prompt field — state exclusions positively inside the prompt (\"clean background with no text\"); wrap exact in-image text in quotation marks; specify aspect ratio in the prompt (\"wide landscape format\") or use the fixed API sizes 1024x1024 / 1792x1024 / 1024x1792; and leverage ChatGPT's automatic prompt enhancement for conversational refinement. Recommended structure is a four-part sentence (subject+action / environment+time / lighting+palette / style+quality). Avoid vagueness, contradictions, and element overload."
+desc-cn: "面向希望编写高质量 DALL·E 3 提示词的用户。整理自 OpenAI 官方指南与社区最佳实践。核心规则包括：纯自然语言、无特殊语法（不吃 --ar/--no/权重符号）；不用 negative prompt 字段，排除项写进主提示正向表述（\"clean background with no text\"）；精确文字放引号内；比例写进提示词（\"wide landscape format\"）或用固定 API 尺寸 1024x1024 / 1792x1024 / 1024x1792；借助 ChatGPT 自动增强做会话式微调。推荐四段式结构（主体+动作 / 环境+时间 / 光照+配色 / 风格+质量词），避免模糊、自相矛盾与元素过载。"
+author-en: Local User
+author-cn: 本地用户
+source: community

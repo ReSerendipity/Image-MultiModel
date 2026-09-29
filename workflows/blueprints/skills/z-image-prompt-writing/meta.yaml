@@ -1,0 +1,17 @@
+display-name-zh: Z-Image 图像提示词撰写
+version: 0.1.0
+tag-en: Prompting
+tag-cn: 提示词
+complete-tags-en:
+- Prompting / Image Generation
+- Prompting / Creative Writing
+complete-tags-cn:
+- 提示词 / 图像生成
+- 提示词 / 创意写作
+summary-en: Write Z-Image (Z-Image / Z-Image-Turbo, 6B S3-DiT, Apache 2.0) image generation prompts.
+summary-cn: 编写 Z-Image（6B S3-DiT，Apache 2.0 开源）图像生成提示词，覆盖双语自然语言、质量修饰词、中文文字渲染、Base/Turbo 变体差异。
+desc-en: "Designed for users who want to write effective Z-Image prompts (Z-Image / Z-Image-Turbo, 6B S3-DiT by Alibaba Tongyi-MAI, Apache 2.0). Compiled from the official release, HuggingFace, and community testing. Core rules include: bilingual natural-language prompts with native Chinese understanding (mT5 encoder); a structure of [subject+details] + [style keyword] + [lighting] + [composition] + [quality modifiers]; quality modifiers (ultra-detailed, high-resolution, crisp, sharp) that genuinely move the needle; wrapping in-image text in quotes (Z-Image's standout feature is accurate EN+CN text rendering); and a critical variant split — Turbo ignores the negative-prompt field (write restrictions as positive clauses), while Base supports negative prompts. Prompt Enhancer fills gaps but predictability needs detailed prompts. Recommended length 80-250 words."
+desc-cn: "面向希望编写高质量 Z-Image 提示词的用户。Z-Image 为阿里通义 MAI 的 6B S3-DiT，Apache 2.0 开源，整理自官方发布、HuggingFace 与社区实测。核心规则包括：双语自然语言、中文原生理解强（mT5 编码器）；结构为 [主体+细节]+[风格词]+[光照]+[构图]+[质量修饰词]；质量修饰词（ultra-detailed、high-resolution、crisp、sharp）确实影响画质；图片内文字用引号包住（Z-Image 最大优势是中英双语文字渲染）；关键变体差异——Turbo 不支持负面提示词（约束写正向句），Base 支持负面提示词；内置 Prompt Enhancer 补细节但可预测性靠你写细。推荐长度 80–250 词。"
+author-en: Local User
+author-cn: 本地用户
+source: community

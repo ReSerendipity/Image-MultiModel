@@ -1,0 +1,17 @@
+display-name-zh: Krea 2 图像提示词撰写
+version: 0.1.0
+tag-en: Prompting
+tag-cn: 提示词
+complete-tags-en:
+- Prompting / Image Generation
+- Prompting / Creative Writing
+complete-tags-cn:
+- 提示词 / 图像生成
+- 提示词 / 创意写作
+summary-en: Write Krea 2 image generation prompts (FLUX.1-based aesthetic fine-tune).
+summary-cn: 编写 Krea 2（基于 FLUX.1 的 12B 美学微调）图像生成提示词，覆盖自然语言、支持并使用负面提示词、aspect_ratio 与 creativity 参数。
+desc-en: "Designed for users who want to write effective Krea 2 prompts. Krea 2 is a FLUX.1 (12B flow transformer) aesthetic fine-tune distributed as part of the official FLUX family. Compiled from Krea's open-source page, Replicate docs, and community testing. Core rules include: natural-language prompts in the FLUX style (no old tag soup); Krea 2 SUPPORTS and benefits from negative prompts (unlike FLUX.2 — a simple negative like \"ugly, distorted, watermark, text\" often improves output); aspect ratio via the aspect_ratio parameter (1:1 / 16:9 / 3:4 / 9:16 / 4:3 / 3:2, default 1:1; 16:9 or 4:3 for landscapes, 2:3 for portraits); creativity enum (raw/low/medium/high, default medium); and for open-weight/ComfyUI, CFG 7-9, steps 20-30, DPM++ 2M Karras or Euler a. Keep prompts to 2-4 key subjects and avoid generic words."
+desc-cn: "面向希望编写高质量 Krea 2 提示词的用户。Krea 2 是基于 FLUX.1（12B flow transformer）的美学微调，作为官方 FLUX 家族分发，整理自 Krea 开源页、Replicate 文档与社区实测。核心规则包括：沿用 FLUX 式自然语言（不吃老式标签堆砌）；Krea 2 支持并使用负面提示词（与 FLUX.2 相反——一条简单负面如 ugly, distorted, watermark, text 常显著改善输出）；比例走 aspect_ratio 参数（1:1 / 16:9 / 3:4 / 9:16 / 4:3 / 3:2，默认 1:1；横/风景用 16:9 或 4:3，竖/人像用 2:3）；creativity 枚举（raw/low/medium/high，默认 medium）；开源/ComfyUI 版 CFG 7–9、步数 20–30、采样器 DPM++ 2M Karras 或 Euler a。一次 2–4 个关键主体，避免空泛词。"
+author-en: Local User
+author-cn: 本地用户
+source: community

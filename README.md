@@ -217,6 +217,8 @@ python scripts/verify_watermark.py outputs/z_image_turbo_native/20260814/xxx_ori
 | `/api/config` | GET/PUT | 读取/保存配置 |
 | `/api/tasks` | GET | 任务列表 |
 | `/api/tasks/{id}/cancel` | POST | 取消任务 |
+| `/api/agent/health` | GET | Agent LLM 大脑健康状态（本地 llama.cpp / 云 API，经 .env 配置） |
+| `/api/agent/chat` | POST (SSE) | Agent 对话式生图（流式事件：tool_call / task_created / final / error） |
 
 ---
 

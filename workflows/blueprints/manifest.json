@@ -1,0 +1,1056 @@
+{
+  "generated_at": "2026-09-29T14:24:15+00:00",
+  "source": "external ComfyUI user/default/workflows (Edit/Image/SeedVR2)",
+  "gotcha": "widget 真值以子图实例节点(容器)的 positional widgets_values 为准,子图内部值可能被覆盖;移植前实机验证",
+  "workflows": [
+    {
+      "file": "Edit/flux2_klein_edit.json",
+      "category": "Edit",
+      "comfy_format_version": 0.4,
+      "top_node_count": 12,
+      "subgraphs": [
+        {
+          "name": "Image Edit (Flux.2 Klein 9B Distilled)",
+          "node_count": 17
+        },
+        {
+          "name": "Image Edit (Flux.2 Klein 9B Distilled)",
+          "node_count": 45
+        }
+      ],
+      "class_counts": {
+        "ReferenceLatent": 18,
+        "ImageScaleToTotalPixels": 9,
+        "VAEEncode": 9,
+        "LoadImage": 8,
+        "SaveImageAdvanced": 2,
+        "KSamplerSelect": 2,
+        "SamplerCustomAdvanced": 2,
+        "VAEDecode": 2,
+        "RandomNoise": 2,
+        "UNETLoader": 2,
+        "CLIPLoader": 2,
+        "EmptyFlux2LatentImage": 2,
+        "CFGGuider": 2,
+        "Flux2Scheduler": 2,
+        "GetImageSize": 2,
+        "VAELoader": 2,
+        "CLIPTextEncode": 2,
+        "ConditioningZeroOut": 2,
+        "7b34ab90-36f9-45ba-a665-71d418f0df18": 1,
+        "65c22b29-59aa-496b-89c6-55a603658670": 1
+      },
+      "container_instances": [
+        {
+          "subgraph": "Image Edit (Flux.2 Klein 9B Distilled)",
+          "title": null,
+          "widgets_values": [
+            "FLUX-2-klein-9b\\DarkBeast-Klein9b-V2-BFS-FP8.safetensors",
+            "FLUX-2-klein-9b\\qwen_3_8b_fp8mixed.safetensors",
+            "FLUX.2-klein-9b\\flux2-vae.safetensors",
+            "",
+            26416064315367
+          ]
+        },
+        {
+          "subgraph": "Image Edit (Flux.2 Klein 9B Distilled)",
+          "title": null,
+          "widgets_values": [
+            "flux-2-klein-9b-fp8.safetensors",
+            "qwen_3_8b_fp8mixed.safetensors",
+            "full_encoder_small_decoder.safetensors",
+            "",
+            583453753589969
+          ]
+        }
+      ],
+      "samplers": [
+        {
+          "where": "subgraph:Image Edit (Flux.2 Klein 9B Distilled)",
+          "type": "KSamplerSelect",
+          "widgets_values": [
+            "euler"
+          ]
+        },
+        {
+          "where": "subgraph:Image Edit (Flux.2 Klein 9B Distilled)",
+          "type": "SamplerCustomAdvanced",
+          "widgets_values": null
+        },
+        {
+          "where": "subgraph:Image Edit (Flux.2 Klein 9B Distilled)",
+          "type": "KSamplerSelect",
+          "widgets_values": [
+            "euler"
+          ]
+        },
+        {
+          "where": "subgraph:Image Edit (Flux.2 Klein 9B Distilled)",
+          "type": "SamplerCustomAdvanced",
+          "widgets_values": null
+        }
+      ],
+      "loras": [],
+      "model_files": [
+        "DarkBeast-Klein9b-V2-BFS-FP8.safetensors",
+        "flux-2-klein-9b-fp8.safetensors",
+        "flux2-vae.safetensors",
+        "full_encoder_small_decoder.safetensors",
+        "qwen_3_8b_fp8mixed.safetensors"
+      ]
+    },
+    {
+      "file": "Edit/qwen_2_1_edit.json",
+      "category": "Edit",
+      "comfy_format_version": 0.4,
+      "top_node_count": 13,
+      "subgraphs": [
+        {
+          "name": "Image Edit (Qwen Image 2.1)",
+          "node_count": 9
+        }
+      ],
+      "class_counts": {
+        "LoadImage": 10,
+        "ResolutionSelector": 1,
+        "bc1c967a-7f6a-4be9-a372-dad16e4f28e3": 1,
+        "SaveImageAdvanced": 1,
+        "UNETLoader": 1,
+        "CLIPLoader": 1,
+        "VAELoader": 1,
+        "EmptyLatentImage": 1,
+        "VAEDecode": 1,
+        "KSampler": 1,
+        "ComfySwitchNode": 1,
+        "QwenImage21Cache": 1,
+        "TextEncodeQwenImage21": 1
+      },
+      "container_instances": [
+        {
+          "subgraph": "Image Edit (Qwen Image 2.1)",
+          "title": null,
+          "widgets_values": [
+            0,
+            "",
+            "",
+            1,
+            25,
+            false,
+            1024,
+            1024,
+            "euler",
+            "simple",
+            1070478148268574,
+            "Qwen-Image-2.1\\qwen_image_2.1_int8_convrot.safetensors",
+            "Qwen-Image-2.1\\qwen3vl_8b_int8_convrot.safetensors",
+            "Qwen-Image-2.1\\qwen_image_2.1_vae_bf16.safetensors",
+            "auto",
+            "default"
+          ]
+        }
+      ],
+      "samplers": [
+        {
+          "where": "subgraph:Image Edit (Qwen Image 2.1)",
+          "type": "KSampler",
+          "widgets_values": [
+            0,
+            "randomize",
+            25,
+            1,
+            "euler",
+            "simple",
+            1
+          ],
+          "labeled": {
+            "seed": 0,
+            "control_after_generate": "randomize",
+            "steps": 25,
+            "cfg": 1,
+            "sampler_name": "euler",
+            "scheduler": "simple",
+            "denoise": 1
+          }
+        }
+      ],
+      "loras": [],
+      "model_files": [
+        "qwen3vl_8b_int8_convrot.safetensors",
+        "qwen_image_2.1_int8_convrot.safetensors",
+        "qwen_image_2.1_vae_bf16.safetensors"
+      ]
+    },
+    {
+      "file": "Edit/qwen_edit_2511.json",
+      "category": "Edit",
+      "comfy_format_version": 0.4,
+      "top_node_count": 5,
+      "subgraphs": [
+        {
+          "name": "Image Edit (Qwen-Image 2511)",
+          "node_count": 23
+        }
+      ],
+      "class_counts": {
+        "LoadImage": 3,
+        "ComfySwitchNode": 3,
+        "FluxKontextMultiReferenceLatentMethod": 2,
+        "TextEncodeQwenImageEditPlus": 2,
+        "PrimitiveFloat": 2,
+        "PrimitiveInt": 2,
+        "cdb2cf24-c432-439b-b5c8-5f69838580c9": 1,
+        "SaveImageAdvanced": 1,
+        "ModelSamplingAuraFlow": 1,
+        "VAELoader": 1,
+        "Note": 1,
+        "CFGNorm": 1,
+        "LoraLoaderModelOnly": 1,
+        "VAEEncode": 1,
+        "UNETLoader": 1,
+        "CLIPLoader": 1,
+        "PrimitiveBoolean": 1,
+        "KSampler": 1,
+        "VAEDecode": 1,
+        "FluxKontextImageScale": 1
+      },
+      "container_instances": [
+        {
+          "subgraph": "Image Edit (Qwen-Image 2511)",
+          "title": null,
+          "widgets_values": [
+            "Change the furniture leather difference in image 1 to the fur material in image 2.",
+            "",
+            "Qwen-Image-Edit-2511\\qwen_image_edit_2511_nvfp4.safetensors",
+            "Qwen-image-2512-edit\\qwen_2.5_vl_7b_Abliteratedte.safetensors",
+            "Qwen-image-2512-edit + Krea2\\qwen_image_vae.safetensors",
+            false,
+            "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors",
+            677909188488042
+          ]
+        }
+      ],
+      "samplers": [
+        {
+          "where": "subgraph:Image Edit (Qwen-Image 2511)",
+          "type": "KSampler",
+          "widgets_values": [
+            677909188488042,
+            "randomize",
+            40,
+            3,
+            "euler",
+            "simple",
+            1
+          ],
+          "labeled": {
+            "seed": 677909188488042,
+            "control_after_generate": "randomize",
+            "steps": 40,
+            "cfg": 3,
+            "sampler_name": "euler",
+            "scheduler": "simple",
+            "denoise": 1
+          }
+        }
+      ],
+      "loras": [
+        "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors"
+      ],
+      "model_files": [
+        "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors",
+        "qwen_2.5_vl_7b_Abliteratedte.safetensors",
+        "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+        "qwen_image_edit_2511_fp8mixed.safetensors",
+        "qwen_image_edit_2511_nvfp4.safetensors",
+        "qwen_image_vae.safetensors"
+      ]
+    },
+    {
+      "file": "Image/flux.1-dev.json",
+      "category": "Image",
+      "comfy_format_version": 0.4,
+      "top_node_count": 4,
+      "subgraphs": [
+        {
+          "name": "Text to Image (FLUX.1-dev)",
+          "node_count": 29
+        }
+      ],
+      "class_counts": {
+        "LoraLoaderModelOnly": 6,
+        "3b418416-21a0-44da-a0ed-2fc16b1f8d4c": 1,
+        "ResolutionSelector": 1,
+        "SaveImageAdvanced": 1,
+        "MarkdownNote": 1,
+        "VAELoader": 1,
+        "Fast Groups Bypasser (rgthree)": 1,
+        "RandomNoise": 1,
+        "BasicGuider": 1,
+        "ModelSamplingFlux": 1,
+        "BasicScheduler": 1,
+        "EmptySD3LatentImage": 1,
+        "KSamplerSelect": 1,
+        "ReservedVRAMSetter": 1,
+        "FluxGuidance": 1,
+        "CLIPTextEncode": 1,
+        "UNETLoader": 1,
+        "DualCLIPLoader": 1,
+        "VAEDecode": 1,
+        "SamplerCustomAdvanced": 1,
+        "SeedVR2LoadVAEModel": 1,
+        "SeedVR2VideoUpscaler": 1,
+        "SeedVR2LoadDiTModel": 1,
+        "ImageScaleToTotalPixels": 1,
+        "PreviewImage": 1,
+        "BatchPromptReaderWithClip": 1,
+        "ConditioningZeroOut": 1,
+        "CFGGuider": 1
+      },
+      "container_instances": [
+        {
+          "subgraph": "Text to Image (FLUX.1-dev)",
+          "title": null,
+          "widgets_values": [
+            "两位年过二十五的东亚女性，身高约162cm，颧骨适中，双眼皮宽，海鸥线鼻，发型为红铜色长发，妆感纯净学院风妆容，身材丰满，服装为珊瑚橙璎珞，神态自然微笑，同伴年过三十的东亚女性，身高约171cm，小V脸，双眼皮，鼻梁微塌，发型为漂染铂金直发，妆感清透自然，身材健美匀称，服装为咖啡棕宫绦，神态自然微笑，两人是知己，正在依偎，氛围欢喜，场景吊桥，氛围厌世感，亭台观雨的场景让人感到舒适，场所的柔美陈设透出愉悦的气息，夜幕降临的金黄光线柔和地铺洒在场所上，夜幕降临的橘红光线柔和地铺洒在一隅上，古典的氛围中，摆设点缀其间，细腻的意境，画作在角落里静静散发和谐的气息，陈设在柔和光线下泛着温润的质感，画作在微亮光线下泛着温润的质感，金黄光线照射下，陈设显得格外素净，清朗的天气让人心情安然，午后的细碎光影，摆设的质感温润，与场所的色调和谐统一，回廊深处，摆设静静陈列，清新而惬意，周围的环境考究，饰品摆放得恰到好处，柔煦的氛围中，画作静静陈列，局部的布置显得和谐，花瓶点缀其间，回廊深处，绿植静静陈列，柔美而慵懒，绿植古朴典雅，与环境相得益彰，静谧的基调下，环境显得惬意而素净，花瓶的细腻造型与局部的氛围安详呼应，装饰品的细腻造型与一隅的氛围闲适呼应，局部的整洁布置让整个空间闲适起来，回廊深处，饰品静静陈列，和谐而平和，古典的氛围中，饰品点缀其间，素净的意境，和煦的天气让人心情安然，破晓时分的柔和光影，明媚的氛围中，装饰品静静陈列，柔和光线照射下，格局显得格外整洁，装饰品古朴典雅，与格局相得益彰，清晨的一隅，小物静静诉说着和谐的故事，装饰品在角落里静静散发柔美的气息，上午的场所，器物静静诉说着简约的故事，陈设在角落里静静散发清新的气息，饰品古朴典雅，与区域相得益彰，正午的区域，小物静静诉说着整洁的故事，绵长的氛围中，摆设静静陈列，器物的质感考究，与角落的色调和谐统一，陈设的考究格局中，陈设成为点睛之笔，空间的和谐陈设透出悠然的气息",
+            4,
+            20,
+            1024,
+            1024,
+            "euler",
+            "simple",
+            1111119,
+            "FLUX-1-dev\\Flux-Capacity-NSFW-V2-fp8.safetensors",
+            "FLUX.1-dev\\clip_l.safetensors",
+            "FLUX-1-dev + Z-image-turbo\\ae.safetensors"
+          ]
+        }
+      ],
+      "samplers": [
+        {
+          "where": "subgraph:Text to Image (FLUX.1-dev)",
+          "type": "KSamplerSelect",
+          "widgets_values": [
+            "euler"
+          ]
+        },
+        {
+          "where": "subgraph:Text to Image (FLUX.1-dev)",
+          "type": "SamplerCustomAdvanced",
+          "widgets_values": null
+        }
+      ],
+      "loras": [
+        "None"
+      ],
+      "model_files": [
+        "Flux-Capacity-NSFW-V2-fp8.safetensors",
+        "ae.safetensors",
+        "clip_l.safetensors",
+        "ema_vae_fp16.safetensors",
+        "flux1-dev.safetensors",
+        "seedvr2_ema_3b_fp16.safetensors",
+        "t5xxl_fp16.safetensors",
+        "t5xxl_fp8_e4m3fn.safetensors",
+        "t5xxl_fp8_e4m3fn_scaled.safetensors"
+      ]
+    },
+    {
+      "file": "Image/Flux.2_Klein-9B-Distilled.json",
+      "category": "Image",
+      "comfy_format_version": 0.4,
+      "top_node_count": 4,
+      "subgraphs": [
+        {
+          "name": "Text to Image (FLUX.2 Klein-9B-Distilled)",
+          "node_count": 27
+        }
+      ],
+      "class_counts": {
+        "LoraLoaderModelOnly": 6,
+        "CLIPTextEncode": 2,
+        "95960805-4e0e-42ca-98ba-6cc695c33b66": 1,
+        "ResolutionSelector": 1,
+        "SaveImageAdvanced": 1,
+        "MarkdownNote": 1,
+        "CLIPLoader": 1,
+        "VAELoader": 1,
+        "EmptyFlux2LatentImage": 1,
+        "VAEDecode": 1,
+        "RandomNoise": 1,
+        "KSamplerSelect": 1,
+        "CFGGuider": 1,
+        "Flux2Scheduler": 1,
+        "SamplerCustomAdvanced": 1,
+        "Fast Groups Bypasser (rgthree)": 1,
+        "ImageScaleToTotalPixels": 1,
+        "PreviewImage": 1,
+        "ReservedVRAMSetter": 1,
+        "SeedVR2LoadVAEModel": 1,
+        "SeedVR2VideoUpscaler": 1,
+        "SeedVR2LoadDiTModel": 1,
+        "UNETLoader": 1,
+        "BatchPromptReaderWithClip": 1,
+        "ConditioningZeroOut": 1
+      },
+      "container_instances": [
+        {
+          "subgraph": "Text to Image (FLUX.2 Klein-9B-Distilled)",
+          "title": null,
+          "widgets_values": [
+            "两位年过二十五的东亚女性，身高约162cm，颧骨适中，双眼皮宽，海鸥线鼻，发型为红铜色长发，妆感纯净学院风妆容，身材丰满，服装为珊瑚橙璎珞，神态自然微笑，同伴年过三十的东亚女性，身高约171cm，小V脸，双眼皮，鼻梁微塌，发型为漂染铂金直发，妆感清透自然，身材健美匀称，服装为咖啡棕宫绦，神态自然微笑，两人是知己，正在依偎，氛围欢喜，场景吊桥，氛围厌世感，亭台观雨的场景让人感到舒适，场所的柔美陈设透出愉悦的气息，夜幕降临的金黄光线柔和地铺洒在场所上，夜幕降临的橘红光线柔和地铺洒在一隅上，古典的氛围中，摆设点缀其间，细腻的意境，画作在角落里静静散发和谐的气息，陈设在柔和光线下泛着温润的质感，画作在微亮光线下泛着温润的质感，金黄光线照射下，陈设显得格外素净，清朗的天气让人心情安然，午后的细碎光影，摆设的质感温润，与场所的色调和谐统一，回廊深处，摆设静静陈列，清新而惬意，周围的环境考究，饰品摆放得恰到好处，柔煦的氛围中，画作静静陈列，局部的布置显得和谐，花瓶点缀其间，回廊深处，绿植静静陈列，柔美而慵懒，绿植古朴典雅，与环境相得益彰，静谧的基调下，环境显得惬意而素净，花瓶的细腻造型与局部的氛围安详呼应，装饰品的细腻造型与一隅的氛围闲适呼应，局部的整洁布置让整个空间闲适起来，回廊深处，饰品静静陈列，和谐而平和，古典的氛围中，饰品点缀其间，素净的意境，和煦的天气让人心情安然，破晓时分的柔和光影，明媚的氛围中，装饰品静静陈列，柔和光线照射下，格局显得格外整洁，装饰品古朴典雅，与格局相得益彰，清晨的一隅，小物静静诉说着和谐的故事，装饰品在角落里静静散发柔美的气息，上午的场所，器物静静诉说着简约的故事，陈设在角落里静静散发清新的气息，饰品古朴典雅，与区域相得益彰，正午的区域，小物静静诉说着整洁的故事，绵长的氛围中，摆设静静陈列，器物的质感考究，与角落的色调和谐统一，陈设的考究格局中，陈设成为点睛之笔，空间的和谐陈设透出悠然的气息",
+            "",
+            1,
+            4,
+            1024,
+            1024,
+            "euler",
+            1111119,
+            "FLUX-2-klein-9b\\DarkBeast-Klein9b-V2-BFS-FP8.safetensors",
+            "FLUX-2-klein-9b\\qwen_3_8b_fp8mixed.safetensors",
+            "FLUX.2-klein-9b\\flux2-vae.safetensors"
+          ]
+        }
+      ],
+      "samplers": [
+        {
+          "where": "subgraph:Text to Image (FLUX.2 Klein-9B-Distilled)",
+          "type": "KSamplerSelect",
+          "widgets_values": [
+            "euler"
+          ]
+        },
+        {
+          "where": "subgraph:Text to Image (FLUX.2 Klein-9B-Distilled)",
+          "type": "SamplerCustomAdvanced",
+          "widgets_values": null
+        }
+      ],
+      "loras": [
+        "None"
+      ],
+      "model_files": [
+        "DarkBeast-Klein9b-V2-BFS-FP8.safetensors",
+        "ema_vae_fp16.safetensors",
+        "flux-2-klein-4b.safetensors",
+        "flux-2-klein-base-4b.safetensors",
+        "flux2-vae.safetensors",
+        "qwen_3_4b.safetensors",
+        "qwen_3_8b_fp8mixed.safetensors",
+        "seedvr2_ema_3b_fp16.safetensors"
+      ]
+    },
+    {
+      "file": "Image/krea2_turbo.json",
+      "category": "Image",
+      "comfy_format_version": 0.4,
+      "top_node_count": 6,
+      "subgraphs": [
+        {
+          "name": "Text to Image (Krea-2 Turbo)",
+          "node_count": 31
+        }
+      ],
+      "class_counts": {
+        "LoraLoaderModelOnly": 6,
+        "MarkdownNote": 3,
+        "ComfySwitchNode": 3,
+        "StringConcatenate": 2,
+        "PrimitiveStringMultiline": 2,
+        "PrimitiveBoolean": 2,
+        "SaveImageAdvanced": 1,
+        "b0e5ca93-2731-42b9-8e0a-d28ea851ff81": 1,
+        "ResolutionSelector": 1,
+        "CLIPTextEncode": 1,
+        "EmptyLatentImage": 1,
+        "KSampler": 1,
+        "VAEDecode": 1,
+        "UNETLoader": 1,
+        "CLIPLoader": 1,
+        "VAELoader": 1,
+        "ConditioningZeroOut": 1,
+        "TextGenerate": 1,
+        "PreviewAny": 1,
+        "BatchPromptReaderWithClip": 1,
+        "SeedVR2LoadVAEModel": 1,
+        "SeedVR2LoadDiTModel": 1,
+        "SeedVR2VideoUpscaler": 1,
+        "ReservedVRAMSetter": 1,
+        "PreviewImage": 1
+      },
+      "container_instances": [
+        {
+          "subgraph": "Text to Image (Krea-2 Turbo)",
+          "title": null,
+          "widgets_values": [
+            "两位年过二十五的东亚女性，身高约162cm，颧骨适中，双眼皮宽，海鸥线鼻，发型为红铜色长发，妆感纯净学院风妆容，身材丰满，服装为珊瑚橙璎珞，神态自然微笑，同伴年过三十的东亚女性，身高约171cm，小V脸，双眼皮，鼻梁微塌，发型为漂染铂金直发，妆感清透自然，身材健美匀称，服装为咖啡棕宫绦，神态自然微笑，两人是知己，正在依偎，氛围欢喜，场景吊桥，氛围厌世感，亭台观雨的场景让人感到舒适，场所的柔美陈设透出愉悦的气息，夜幕降临的金黄光线柔和地铺洒在场所上，夜幕降临的橘红光线柔和地铺洒在一隅上，古典的氛围中，摆设点缀其间，细腻的意境，画作在角落里静静散发和谐的气息，陈设在柔和光线下泛着温润的质感，画作在微亮光线下泛着温润的质感，金黄光线照射下，陈设显得格外素净，清朗的天气让人心情安然，午后的细碎光影，摆设的质感温润，与场所的色调和谐统一，回廊深处，摆设静静陈列，清新而惬意，周围的环境考究，饰品摆放得恰到好处，柔煦的氛围中，画作静静陈列，局部的布置显得和谐，花瓶点缀其间，回廊深处，绿植静静陈列，柔美而慵懒，绿植古朴典雅，与环境相得益彰，静谧的基调下，环境显得惬意而素净，花瓶的细腻造型与局部的氛围安详呼应，装饰品的细腻造型与一隅的氛围闲适呼应，局部的整洁布置让整个空间闲适起来，回廊深处，饰品静静陈列，和谐而平和，古典的氛围中，饰品点缀其间，素净的意境，和煦的天气让人心情安然，破晓时分的柔和光影，明媚的氛围中，装饰品静静陈列，柔和光线照射下，格局显得格外整洁，装饰品古朴典雅，与格局相得益彰，清晨的一隅，小物静静诉说着和谐的故事，装饰品在角落里静静散发柔美的气息，上午的场所，器物静静诉说着简约的故事，陈设在角落里静静散发清新的气息，饰品古朴典雅，与区域相得益彰，正午的区域，小物静静诉说着整洁的故事，绵长的氛围中，摆设静静陈列，器物的质感考究，与角落的色调和谐统一，陈设的考究格局中，陈设成为点睛之笔，空间的和谐陈设透出悠然的气息",
+            false,
+            false,
+            512,
+            1024,
+            1024,
+            1111119,
+            false,
+            "Z-image\\Kook_Zimage_Base_极致真实\\Kook_Zimage_Base_极致真实.safetensors",
+            0.8,
+            "muted minimalist sketch style",
+            "Krea2-turbo\\krea2TurboNSFWAIO_v10.safetensors",
+            "Krea2\\qwen3-vl-4b-heretic_fp8_e4m3fn.safetensors",
+            "Qwen-image-2512-edit + Krea2\\qwen_image_vae.safetensors"
+          ]
+        }
+      ],
+      "samplers": [
+        {
+          "where": "subgraph:Text to Image (Krea-2 Turbo)",
+          "type": "KSampler",
+          "widgets_values": [
+            735915477938686,
+            "randomize",
+            8,
+            1,
+            "euler",
+            "simple",
+            1
+          ],
+          "labeled": {
+            "seed": 735915477938686,
+            "control_after_generate": "randomize",
+            "steps": 8,
+            "cfg": 1,
+            "sampler_name": "euler",
+            "scheduler": "simple",
+            "denoise": 1
+          }
+        }
+      ],
+      "loras": [
+        "None",
+        "krea2_darkbrush.safetensors"
+      ],
+      "model_files": [
+        "ema_vae_fp16.safetensors",
+        "krea2TurboNSFWAIO_v10.safetensors",
+        "krea2_darkbrush.safetensors",
+        "krea2_turbo_fp8_scaled.safetensors",
+        "qwen3-vl-4b-heretic_fp8_e4m3fn.safetensors",
+        "qwen3vl_4b_fp8_scaled.safetensors",
+        "qwen_image_vae.safetensors",
+        "seedvr2_ema_3b_fp16.safetensors"
+      ]
+    },
+    {
+      "file": "Image/Qwen_image.json",
+      "category": "Image",
+      "comfy_format_version": 0.4,
+      "top_node_count": 7,
+      "subgraphs": [
+        {
+          "name": "Text to Image (Qwen-Image)",
+          "node_count": 30
+        }
+      ],
+      "class_counts": {
+        "LoraLoaderModelOnly": 6,
+        "MarkdownNote": 4,
+        "ComfySwitchNode": 3,
+        "CLIPTextEncode": 2,
+        "PrimitiveInt": 2,
+        "PrimitiveFloat": 2,
+        "c7300ca3-9504-4375-a665-c09529708304": 1,
+        "ResolutionSelector": 1,
+        "SaveImageAdvanced": 1,
+        "EmptySD3LatentImage": 1,
+        "KSampler": 1,
+        "VAEDecode": 1,
+        "Fast Groups Bypasser (rgthree)": 1,
+        "ImageScaleToTotalPixels": 1,
+        "PreviewImage": 1,
+        "ReservedVRAMSetter": 1,
+        "SeedVR2LoadVAEModel": 1,
+        "SeedVR2VideoUpscaler": 1,
+        "SeedVR2LoadDiTModel": 1,
+        "CLIPLoader": 1,
+        "VAELoader": 1,
+        "UNETLoader": 1,
+        "BatchPromptReaderWithClip": 1,
+        "PrimitiveBoolean": 1
+      },
+      "container_instances": [
+        {
+          "subgraph": "Text to Image (Qwen-Image)",
+          "title": null,
+          "widgets_values": [
+            "两位年过二十五的东亚女性，身高约162cm，颧骨适中，双眼皮宽，海鸥线鼻，发型为红铜色长发，妆感纯净学院风妆容，身材丰满，服装为珊瑚橙璎珞，神态自然微笑，同伴年过三十的东亚女性，身高约171cm，小V脸，双眼皮，鼻梁微塌，发型为漂染铂金直发，妆感清透自然，身材健美匀称，服装为咖啡棕宫绦，神态自然微笑，两人是知己，正在依偎，氛围欢喜，场景吊桥，氛围厌世感，亭台观雨的场景让人感到舒适，场所的柔美陈设透出愉悦的气息，夜幕降临的金黄光线柔和地铺洒在场所上，夜幕降临的橘红光线柔和地铺洒在一隅上，古典的氛围中，摆设点缀其间，细腻的意境，画作在角落里静静散发和谐的气息，陈设在柔和光线下泛着温润的质感，画作在微亮光线下泛着温润的质感，金黄光线照射下，陈设显得格外素净，清朗的天气让人心情安然，午后的细碎光影，摆设的质感温润，与场所的色调和谐统一，回廊深处，摆设静静陈列，清新而惬意，周围的环境考究，饰品摆放得恰到好处，柔煦的氛围中，画作静静陈列，局部的布置显得和谐，花瓶点缀其间，回廊深处，绿植静静陈列，柔美而慵懒，绿植古朴典雅，与环境相得益彰，静谧的基调下，环境显得惬意而素净，花瓶的细腻造型与局部的氛围安详呼应，装饰品的细腻造型与一隅的氛围闲适呼应，局部的整洁布置让整个空间闲适起来，回廊深处，饰品静静陈列，和谐而平和，古典的氛围中，饰品点缀其间，素净的意境，和煦的天气让人心情安然，破晓时分的柔和光影，明媚的氛围中，装饰品静静陈列，柔和光线照射下，格局显得格外整洁，装饰品古朴典雅，与格局相得益彰，清晨的一隅，小物静静诉说着和谐的故事，装饰品在角落里静静散发柔美的气息，上午的场所，器物静静诉说着简约的故事，陈设在角落里静静散发清新的气息，饰品古朴典雅，与区域相得益彰，正午的区域，小物静静诉说着整洁的故事，绵长的氛围中，摆设静静陈列，器物的质感考究，与角落的色调和谐统一，陈设的考究格局中，陈设成为点睛之笔，空间的和谐陈设透出悠然的气息",
+            "",
+            1,
+            8,
+            1024,
+            1024,
+            "euler",
+            "simple",
+            1111119,
+            "Qwen-image-2512\\qwen-image-2512-nvfp4-Ultra.safetensors",
+            "Qwen-image-2512-edit\\qwen_2.5_vl_7b_Abliteratedte.safetensors",
+            "Qwen-image-2512-edit + Krea2\\qwen_image_vae.safetensors"
+          ]
+        }
+      ],
+      "samplers": [
+        {
+          "where": "subgraph:Text to Image (Qwen-Image)",
+          "type": "KSampler",
+          "widgets_values": [
+            297796727043574,
+            "randomize",
+            50,
+            4,
+            "euler",
+            "simple",
+            1
+          ],
+          "labeled": {
+            "seed": 297796727043574,
+            "control_after_generate": "randomize",
+            "steps": 50,
+            "cfg": 4,
+            "sampler_name": "euler",
+            "scheduler": "simple",
+            "denoise": 1
+          }
+        }
+      ],
+      "loras": [
+        "None"
+      ],
+      "model_files": [
+        "Qwen-Image-Lightning-8steps-V1.0.safetensors",
+        "ema_vae_fp16.safetensors",
+        "qwen-image-2512-nvfp4-Ultra.safetensors",
+        "qwen_2.5_vl_7b_Abliteratedte.safetensors",
+        "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+        "qwen_image_distill_full_bf16.safetensors",
+        "qwen_image_distill_full_fp8_e4m3fn.safetensors",
+        "qwen_image_fp8_e4m3fn.safetensors",
+        "qwen_image_vae.safetensors",
+        "seedvr2_ema_3b_fp16.safetensors"
+      ]
+    },
+    {
+      "file": "Image/Qwen_image_2512.json",
+      "category": "Image",
+      "comfy_format_version": 0.4,
+      "top_node_count": 5,
+      "subgraphs": [
+        {
+          "name": "Text to Image (Qwen-Image-2512)",
+          "node_count": 30
+        }
+      ],
+      "class_counts": {
+        "LoraLoaderModelOnly": 6,
+        "ComfySwitchNode": 3,
+        "MarkdownNote": 2,
+        "CLIPTextEncode": 2,
+        "PrimitiveInt": 2,
+        "PrimitiveFloat": 2,
+        "c7300ca3-9504-4375-a665-c09529708304": 1,
+        "ResolutionSelector": 1,
+        "SaveImageAdvanced": 1,
+        "CLIPLoader": 1,
+        "VAELoader": 1,
+        "EmptySD3LatentImage": 1,
+        "KSampler": 1,
+        "VAEDecode": 1,
+        "Fast Groups Bypasser (rgthree)": 1,
+        "ImageScaleToTotalPixels": 1,
+        "PreviewImage": 1,
+        "ReservedVRAMSetter": 1,
+        "SeedVR2LoadVAEModel": 1,
+        "SeedVR2VideoUpscaler": 1,
+        "SeedVR2LoadDiTModel": 1,
+        "UNETLoader": 1,
+        "BatchPromptReaderWithClip": 1,
+        "PrimitiveBoolean": 1
+      },
+      "container_instances": [
+        {
+          "subgraph": "Text to Image (Qwen-Image-2512)",
+          "title": null,
+          "widgets_values": [
+            "两位年过二十五的东亚女性，身高约162cm，颧骨适中，双眼皮宽，海鸥线鼻，发型为红铜色长发，妆感纯净学院风妆容，身材丰满，服装为珊瑚橙璎珞，神态自然微笑，同伴年过三十的东亚女性，身高约171cm，小V脸，双眼皮，鼻梁微塌，发型为漂染铂金直发，妆感清透自然，身材健美匀称，服装为咖啡棕宫绦，神态自然微笑，两人是知己，正在依偎，氛围欢喜，场景吊桥，氛围厌世感，亭台观雨的场景让人感到舒适，场所的柔美陈设透出愉悦的气息，夜幕降临的金黄光线柔和地铺洒在场所上，夜幕降临的橘红光线柔和地铺洒在一隅上，古典的氛围中，摆设点缀其间，细腻的意境，画作在角落里静静散发和谐的气息，陈设在柔和光线下泛着温润的质感，画作在微亮光线下泛着温润的质感，金黄光线照射下，陈设显得格外素净，清朗的天气让人心情安然，午后的细碎光影，摆设的质感温润，与场所的色调和谐统一，回廊深处，摆设静静陈列，清新而惬意，周围的环境考究，饰品摆放得恰到好处，柔煦的氛围中，画作静静陈列，局部的布置显得和谐，花瓶点缀其间，回廊深处，绿植静静陈列，柔美而慵懒，绿植古朴典雅，与环境相得益彰，静谧的基调下，环境显得惬意而素净，花瓶的细腻造型与局部的氛围安详呼应，装饰品的细腻造型与一隅的氛围闲适呼应，局部的整洁布置让整个空间闲适起来，回廊深处，饰品静静陈列，和谐而平和，古典的氛围中，饰品点缀其间，素净的意境，和煦的天气让人心情安然，破晓时分的柔和光影，明媚的氛围中，装饰品静静陈列，柔和光线照射下，格局显得格外整洁，装饰品古朴典雅，与格局相得益彰，清晨的一隅，小物静静诉说着和谐的故事，装饰品在角落里静静散发柔美的气息，上午的场所，器物静静诉说着简约的故事，陈设在角落里静静散发清新的气息，饰品古朴典雅，与区域相得益彰，正午的区域，小物静静诉说着整洁的故事，绵长的氛围中，摆设静静陈列，器物的质感考究，与角落的色调和谐统一，陈设的考究格局中，陈设成为点睛之笔，空间的和谐陈设透出悠然的气息",
+            "",
+            4,
+            50,
+            1024,
+            1024,
+            "euler",
+            "simple",
+            1111119,
+            "Qwen-image-2512\\qwen-image-2512-nvfp4-Ultra.safetensors",
+            "Qwen-image-2512-edit\\qwen_2.5_vl_7b_Abliteratedte.safetensors",
+            "Qwen-image-2512-edit + Krea2\\qwen_image_vae.safetensors"
+          ]
+        }
+      ],
+      "samplers": [
+        {
+          "where": "subgraph:Text to Image (Qwen-Image-2512)",
+          "type": "KSampler",
+          "widgets_values": [
+            827975260547332,
+            "randomize",
+            50,
+            4,
+            "euler",
+            "simple",
+            1
+          ],
+          "labeled": {
+            "seed": 827975260547332,
+            "control_after_generate": "randomize",
+            "steps": 50,
+            "cfg": 4,
+            "sampler_name": "euler",
+            "scheduler": "simple",
+            "denoise": 1
+          }
+        }
+      ],
+      "loras": [
+        "None",
+        "Qwen-Image\\Qwen-NSFW-Beta5.safetensors"
+      ],
+      "model_files": [
+        "Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors",
+        "Qwen-NSFW-Beta5.safetensors",
+        "ema_vae_fp16.safetensors",
+        "qwen-image-2512-nvfp4-Ultra.safetensors",
+        "qwen_2.5_vl_7b_Abliteratedte.safetensors",
+        "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+        "qwen_image_2512_fp8_e4m3fn.safetensors",
+        "qwen_image_vae.safetensors",
+        "seedvr2_ema_3b_fp16.safetensors"
+      ]
+    },
+    {
+      "file": "Image/Qwen_image_2_1_t2i.json",
+      "category": "Image",
+      "comfy_format_version": 0.4,
+      "top_node_count": 5,
+      "subgraphs": [
+        {
+          "name": "Text to Image (Qwen Image 2.1)",
+          "node_count": 19
+        }
+      ],
+      "class_counts": {
+        "LoraLoaderModelOnly": 6,
+        "MarkdownNote": 2,
+        "ResolutionSelector": 1,
+        "c291ceec-b98f-4751-9d0b-7bc288f27b30": 1,
+        "SaveImageAdvanced": 1,
+        "UNETLoader": 1,
+        "TextEncodeQwenImage21": 1,
+        "CLIPLoader": 1,
+        "VAELoader": 1,
+        "EmptyLatentImage": 1,
+        "VAEDecode": 1,
+        "KSampler": 1,
+        "SeedVR2LoadVAEModel": 1,
+        "SeedVR2LoadDiTModel": 1,
+        "SeedVR2VideoUpscaler": 1,
+        "ReservedVRAMSetter": 1,
+        "BatchPromptReaderWithClip": 1,
+        "PreviewImage": 1
+      },
+      "container_instances": [
+        {
+          "subgraph": "Text to Image (Qwen Image 2.1)",
+          "title": null,
+          "widgets_values": [
+            "",
+            "",
+            1,
+            25,
+            1024,
+            1024,
+            "euler",
+            "simple",
+            1111119,
+            "Qwen-Image-2.1\\qwen_image_2.1_int8_convrot.safetensors",
+            "Qwen-Image-2.1\\qwen3vl_8b_int8_convrot.safetensors",
+            "Qwen-Image-2.1\\qwen_image_2.1_vae_bf16.safetensors"
+          ]
+        }
+      ],
+      "samplers": [
+        {
+          "where": "subgraph:Text to Image (Qwen Image 2.1)",
+          "type": "KSampler",
+          "widgets_values": [
+            0,
+            "fixed",
+            25,
+            1,
+            "euler",
+            "simple",
+            1
+          ],
+          "labeled": {
+            "seed": 0,
+            "control_after_generate": "fixed",
+            "steps": 25,
+            "cfg": 1,
+            "sampler_name": "euler",
+            "scheduler": "simple",
+            "denoise": 1
+          }
+        }
+      ],
+      "loras": [
+        "None"
+      ],
+      "model_files": [
+        "ema_vae_fp16.safetensors",
+        "qwen3vl_8b_bf16.safetensors",
+        "qwen3vl_8b_int8_convrot.safetensors",
+        "qwen_image_2.1_bf16.safetensors",
+        "qwen_image_2.1_int8_convrot.safetensors",
+        "qwen_image_2.1_vae_bf16.safetensors",
+        "seedvr2_ema_3b_fp16.safetensors"
+      ]
+    },
+    {
+      "file": "Image/Z_image.json",
+      "category": "Image",
+      "comfy_format_version": 0.4,
+      "top_node_count": 6,
+      "subgraphs": [
+        {
+          "name": "Text to Image (Z-Image-Base)",
+          "node_count": 22
+        }
+      ],
+      "class_counts": {
+        "LoraLoaderModelOnly": 6,
+        "MarkdownNote": 3,
+        "CLIPTextEncode": 2,
+        "e8393e1e-0e30-4b22-a7c2-5745ffccc0e0": 1,
+        "ResolutionSelector": 1,
+        "SaveImageAdvanced": 1,
+        "CLIPLoader": 1,
+        "VAELoader": 1,
+        "EmptySD3LatentImage": 1,
+        "KSampler": 1,
+        "VAEDecode": 1,
+        "Fast Groups Bypasser (rgthree)": 1,
+        "ImageScaleToTotalPixels": 1,
+        "PreviewImage": 1,
+        "ReservedVRAMSetter": 1,
+        "SeedVR2LoadVAEModel": 1,
+        "SeedVR2VideoUpscaler": 1,
+        "SeedVR2LoadDiTModel": 1,
+        "UNETLoader": 1,
+        "BatchPromptReaderWithClip": 1
+      },
+      "container_instances": [
+        {
+          "subgraph": "Text to Image (Z-Image-Base)",
+          "title": null,
+          "widgets_values": [
+            "两位年过二十五的东亚女性，身高约162cm，颧骨适中，双眼皮宽，海鸥线鼻，发型为红铜色长发，妆感纯净学院风妆容，身材丰满，服装为珊瑚橙璎珞，神态自然微笑，同伴年过三十的东亚女性，身高约171cm，小V脸，双眼皮，鼻梁微塌，发型为漂染铂金直发，妆感清透自然，身材健美匀称，服装为咖啡棕宫绦，神态自然微笑，两人是知己，正在依偎，氛围欢喜，场景吊桥，氛围厌世感，亭台观雨的场景让人感到舒适，场所的柔美陈设透出愉悦的气息，夜幕降临的金黄光线柔和地铺洒在场所上，夜幕降临的橘红光线柔和地铺洒在一隅上，古典的氛围中，摆设点缀其间，细腻的意境，画作在角落里静静散发和谐的气息，陈设在柔和光线下泛着温润的质感，画作在微亮光线下泛着温润的质感，金黄光线照射下，陈设显得格外素净，清朗的天气让人心情安然，午后的细碎光影，摆设的质感温润，与场所的色调和谐统一，回廊深处，摆设静静陈列，清新而惬意，周围的环境考究，饰品摆放得恰到好处，柔煦的氛围中，画作静静陈列，局部的布置显得和谐，花瓶点缀其间，回廊深处，绿植静静陈列，柔美而慵懒，绿植古朴典雅，与环境相得益彰，静谧的基调下，环境显得惬意而素净，花瓶的细腻造型与局部的氛围安详呼应，装饰品的细腻造型与一隅的氛围闲适呼应，局部的整洁布置让整个空间闲适起来，回廊深处，饰品静静陈列，和谐而平和，古典的氛围中，饰品点缀其间，素净的意境，和煦的天气让人心情安然，破晓时分的柔和光影，明媚的氛围中，装饰品静静陈列，柔和光线照射下，格局显得格外整洁，装饰品古朴典雅，与格局相得益彰，清晨的一隅，小物静静诉说着和谐的故事，装饰品在角落里静静散发柔美的气息，上午的场所，器物静静诉说着简约的故事，陈设在角落里静静散发清新的气息，饰品古朴典雅，与区域相得益彰，正午的区域，小物静静诉说着整洁的故事，绵长的氛围中，摆设静静陈列，器物的质感考究，与角落的色调和谐统一，陈设的考究格局中，陈设成为点睛之笔，空间的和谐陈设透出悠然的气息",
+            "",
+            4,
+            25,
+            1024,
+            1024,
+            "res_multistep",
+            "simple",
+            1111119,
+            "Z-image-turbo\\zimageTurboNSFWByStable_2602NSFWFP8.safetensors",
+            "Z-image-turbo\\qwen_3_4b_fp8_mixed.safetensors",
+            "FLUX-1-dev + Z-image-turbo\\ae.safetensors"
+          ]
+        }
+      ],
+      "samplers": [
+        {
+          "where": "subgraph:Text to Image (Z-Image-Base)",
+          "type": "KSampler",
+          "widgets_values": [
+            234518742503160,
+            "randomize",
+            25,
+            4,
+            "res_multistep",
+            "simple",
+            1
+          ],
+          "labeled": {
+            "seed": 234518742503160,
+            "control_after_generate": "randomize",
+            "steps": 25,
+            "cfg": 4,
+            "sampler_name": "res_multistep",
+            "scheduler": "simple",
+            "denoise": 1
+          }
+        }
+      ],
+      "loras": [
+        "None"
+      ],
+      "model_files": [
+        "ae.safetensors",
+        "ema_vae_fp16.safetensors",
+        "qwen_3_4b.safetensors",
+        "qwen_3_4b_fp8_mixed.safetensors",
+        "seedvr2_ema_3b_fp16.safetensors",
+        "z_image_bf16.safetensors",
+        "zimageTurboNSFWByStable_2602NSFWFP8.safetensors"
+      ]
+    },
+    {
+      "file": "Image/Z_image_turbo.json",
+      "category": "Image",
+      "comfy_format_version": 0.4,
+      "top_node_count": 4,
+      "subgraphs": [
+        {
+          "name": "Text to Image (Z-Image-Turbo)",
+          "node_count": 24
+        }
+      ],
+      "class_counts": {
+        "LoraLoaderModelOnly": 6,
+        "CLIPTextEncode": 2,
+        "82388757-f3fe-445d-98b4-26314784fcba": 1,
+        "ResolutionSelector": 1,
+        "SaveImageAdvanced": 1,
+        "MarkdownNote": 1,
+        "UNETLoader": 1,
+        "CLIPLoader": 1,
+        "VAELoader": 1,
+        "EmptySD3LatentImage": 1,
+        "KSampler": 1,
+        "ModelSamplingAuraFlow": 1,
+        "VAEDecode": 1,
+        "Fast Groups Bypasser (rgthree)": 1,
+        "ImageScaleToTotalPixels": 1,
+        "PreviewImage": 1,
+        "ReservedVRAMSetter": 1,
+        "SeedVR2LoadVAEModel": 1,
+        "SeedVR2VideoUpscaler": 1,
+        "SeedVR2LoadDiTModel": 1,
+        "BatchPromptReaderWithClip": 1,
+        "ConditioningZeroOut": 1
+      },
+      "container_instances": [
+        {
+          "subgraph": "Text to Image (Z-Image-Turbo)",
+          "title": null,
+          "widgets_values": [
+            "两位年过二十五的东亚女性，身高约162cm，颧骨适中，双眼皮宽，海鸥线鼻，发型为红铜色长发，妆感纯净学院风妆容，身材丰满，服装为珊瑚橙璎珞，神态自然微笑，同伴年过三十的东亚女性，身高约171cm，小V脸，双眼皮，鼻梁微塌，发型为漂染铂金直发，妆感清透自然，身材健美匀称，服装为咖啡棕宫绦，神态自然微笑，两人是知己，正在依偎，氛围欢喜，场景吊桥，氛围厌世感，亭台观雨的场景让人感到舒适，场所的柔美陈设透出愉悦的气息，夜幕降临的金黄光线柔和地铺洒在场所上，夜幕降临的橘红光线柔和地铺洒在一隅上，古典的氛围中，摆设点缀其间，细腻的意境，画作在角落里静静散发和谐的气息，陈设在柔和光线下泛着温润的质感，画作在微亮光线下泛着温润的质感，金黄光线照射下，陈设显得格外素净，清朗的天气让人心情安然，午后的细碎光影，摆设的质感温润，与场所的色调和谐统一，回廊深处，摆设静静陈列，清新而惬意，周围的环境考究，饰品摆放得恰到好处，柔煦的氛围中，画作静静陈列，局部的布置显得和谐，花瓶点缀其间，回廊深处，绿植静静陈列，柔美而慵懒，绿植古朴典雅，与环境相得益彰，静谧的基调下，环境显得惬意而素净，花瓶的细腻造型与局部的氛围安详呼应，装饰品的细腻造型与一隅的氛围闲适呼应，局部的整洁布置让整个空间闲适起来，回廊深处，饰品静静陈列，和谐而平和，古典的氛围中，饰品点缀其间，素净的意境，和煦的天气让人心情安然，破晓时分的柔和光影，明媚的氛围中，装饰品静静陈列，柔和光线照射下，格局显得格外整洁，装饰品古朴典雅，与格局相得益彰，清晨的一隅，小物静静诉说着和谐的故事，装饰品在角落里静静散发柔美的气息，上午的场所，器物静静诉说着简约的故事，陈设在角落里静静散发清新的气息，饰品古朴典雅，与区域相得益彰，正午的区域，小物静静诉说着整洁的故事，绵长的氛围中，摆设静静陈列，器物的质感考究，与角落的色调和谐统一，陈设的考究格局中，陈设成为点睛之笔，空间的和谐陈设透出悠然的气息",
+            "",
+            1,
+            8,
+            1024,
+            1024,
+            "res_multistep",
+            "simple",
+            1111119,
+            "Z-image-turbo\\zimageTurboNSFWByStable_2602NSFWFP8.safetensors",
+            "Z-image-turbo\\qwen_3_4b_fp8_mixed.safetensors",
+            "FLUX-1-dev + Z-image-turbo\\ae.safetensors"
+          ]
+        }
+      ],
+      "samplers": [
+        {
+          "where": "subgraph:Text to Image (Z-Image-Turbo)",
+          "type": "KSampler",
+          "widgets_values": [
+            427805451282774,
+            "randomize",
+            8,
+            1,
+            "res_multistep",
+            "simple",
+            1
+          ],
+          "labeled": {
+            "seed": 427805451282774,
+            "control_after_generate": "randomize",
+            "steps": 8,
+            "cfg": 1,
+            "sampler_name": "res_multistep",
+            "scheduler": "simple",
+            "denoise": 1
+          }
+        }
+      ],
+      "loras": [
+        "None"
+      ],
+      "model_files": [
+        "ae.safetensors",
+        "ema_vae_fp16.safetensors",
+        "qwen_3_4b.safetensors",
+        "qwen_3_4b_fp8_mixed.safetensors",
+        "seedvr2_ema_3b_fp16.safetensors",
+        "z_image_turbo_bf16.safetensors",
+        "zimageTurboNSFWByStable_2602NSFWFP8.safetensors"
+      ]
+    },
+    {
+      "file": "SeedVR2/SeedVR2.json",
+      "category": "SeedVR2",
+      "comfy_format_version": 0.4,
+      "top_node_count": 9,
+      "subgraphs": [],
+      "class_counts": {
+        "SeedVR2LoadVAEModel": 1,
+        "SaveImage": 1,
+        "SeedVR2VideoUpscaler": 1,
+        "SeedVR2LoadDiTModel": 1,
+        "Fast Groups Bypasser (rgthree)": 1,
+        "ImageScaleToTotalPixels": 1,
+        "PreviewImage": 1,
+        "EsesImageCompare": 1,
+        "LoadImage": 1
+      },
+      "container_instances": [],
+      "samplers": [],
+      "loras": [],
+      "model_files": [
+        "ema_vae_fp16.safetensors",
+        "seedvr2_ema_3b_fp16.safetensors"
+      ]
+    },
+    {
+      "file": "SeedVR2/SeedVR2批量版.json",
+      "category": "SeedVR2",
+      "comfy_format_version": 0.4,
+      "top_node_count": 9,
+      "subgraphs": [],
+      "class_counts": {
+        "Note": 1,
+        "LoadImagesFromDir //Inspire": 1,
+        "SeedVR2LoadVAEModel": 1,
+        "SaveImage": 1,
+        "SeedVR2VideoUpscaler": 1,
+        "SeedVR2LoadDiTModel": 1,
+        "Fast Groups Bypasser (rgthree)": 1,
+        "ImageScaleToTotalPixels": 1,
+        "PreviewImage": 1
+      },
+      "container_instances": [],
+      "samplers": [],
+      "loras": [],
+      "model_files": [
+        "ema_vae_fp16.safetensors",
+        "seedvr2_ema_3b_fp16.safetensors"
+      ]
+    }
+  ]
+}

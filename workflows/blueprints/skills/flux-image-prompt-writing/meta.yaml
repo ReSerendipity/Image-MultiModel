@@ -1,0 +1,17 @@
+display-name-zh: FLUX 图像提示词撰写
+version: 0.1.0
+tag-en: Prompting
+tag-cn: 提示词
+complete-tags-en:
+- Prompting / Image Generation
+- Prompting / Creative Writing
+complete-tags-cn:
+- 提示词 / 图像生成
+- 提示词 / 创意写作
+summary-en: Write FLUX.1 / FLUX.1 Kontext / FLUX.2 image generation prompts.
+summary-cn: 编写 FLUX.1 / FLUX.1 Kontext / FLUX.2 图像生成提示词，遵循官方 Prompting Guide 的正向描述、自然语言、画面文字、真实感摄影与词序规范。
+desc-en: "Designed for users who want to write effective FLUX image generation prompts. Covers the official BFL Prompting Guide covering FLUX.1, FLUX.1 Kontext, and FLUX.2. Core rules include no negative prompt (use positive descriptions such as \"sharp focus throughout\"), natural-language-first templates as a starting point rather than a hard rule, quoting visible text on screen, writing concrete camera/lens/film details for realistic photography, word-order sensitivity with the most important elements first, and length tiers from short exploration (10-30 words) to long multi-subject prompts (80+ words, with FLUX.2 supporting up to 32K tokens). Also covers multilingual phrasing and multi-image input by describing each image's role in natural language."
+desc-cn: "面向希望编写高质量 FLUX 图像生成提示词的用户。整理自官方 BFL Prompting Guide，覆盖 FLUX.1、FLUX.1 Kontext、FLUX.2。核心规则包括：不使用 negative prompt（改用 \"sharp focus throughout\" 等正向描述）、以自然语言模板为起点而非铁律、画面内可见文字用引号包裹、真实感摄影写出具体相机/镜头/胶片参数、词序敏感将最重要元素前置、按短（10-30 词快速探索）/中（30-80 词通用）/长（80+ 词复杂多主体，FLUX.2 最长支持 32K tokens）三档控制长度。同时涵盖多语言地道表达与多图输入时用自然语言说明每张图作用（subject from image 1, style from image 2, background from image 3）。"
+author-en: Local User
+author-cn: 本地用户
+source: community

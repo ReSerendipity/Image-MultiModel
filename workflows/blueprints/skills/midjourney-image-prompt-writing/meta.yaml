@@ -1,0 +1,17 @@
+display-name-zh: Midjourney 图像提示词撰写
+version: 0.1.0
+tag-en: Prompting
+tag-cn: 提示词
+complete-tags-en:
+- Prompting / Image Generation
+- Prompting / Creative Writing
+complete-tags-cn:
+- 提示词 / 图像生成
+- 提示词 / 创意写作
+summary-en: Write Midjourney (V7) image generation prompts.
+summary-cn: 编写 Midjourney (V7) 图像生成提示词，遵循官方参数语法（--ar/--style raw/--stylize/--no/--sref），自然语言主体 + 句末参数。
+desc-en: "Designed for users who want to write effective Midjourney (V7) prompts. Compiled from the official Midjourney Parameter List and v7 syntax guides. Core rules include: write the scene in natural-language clauses with one medium word (e.g. editorial photography) rather than old tag soup; place all parameters at the end of the prompt (--ar, --style raw, --stylize, --chaos, --no, --sref, --oref, --v); lead with the subject since Midjourney weights early words; use --no for exclusions instead of \"no xxx\" in the main prompt; add --style raw for photorealistic output; and set aspect ratio via --ar (never inside the prompt text). Recommended length is 15-60 words; stylize 0-50 for realism, 200-600 for art."
+desc-cn: "面向希望编写高质量 Midjourney (V7) 提示词的用户。整理自官方 Parameter List 与 v7 语法指南。核心规则包括：用自然语言短从句 + 一个媒介词（如 editorial photography）而非老式标签堆砌；所有参数置于句末（--ar、--style raw、--stylize、--chaos、--no、--sref、--oref、--v）；主体前置（模型左到右加权）；排除用 --no 而非主提示里写 \"no xxx\"；写实加 --style raw；比例走 --ar 参数（不写进提示词正文）。推荐长度 15–60 词；--stylize 写实取 0–50、艺术取 200–600。"
+author-en: Local User
+author-cn: 本地用户
+source: community
