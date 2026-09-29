@@ -28,6 +28,27 @@
   var I18N = {
     'zh-CN': {
       title: 'AI 对话生图',
+      mode_label: '模式',
+      mode_auto: '全自动',
+      mode_confirm: '执行前确认',
+      mode_manual: '纯手动辅助',
+      proposal_title: '待确认参数',
+      p_prompt: '正向提示词',
+      p_negative: '负向提示词',
+      p_width: '宽',
+      p_height: '高',
+      p_steps: '步数',
+      p_cfg: 'CFG',
+      p_seed: '种子',
+      p_batch: '张数',
+      btn_execute: '执行',
+      btn_reject: '取消',
+      btn_workbench: '带去工作台',
+      proposal_executed: '已按确认参数入队：{id}',
+      proposal_rejected: '已取消该参数卡片',
+      proposal_manual_note: '纯手动辅助模式：不会代为生成，请到工作台执行。',
+      proposal_error: '参数卡片操作失败：{msg}',
+      wb_filled: '参数已回填工作台，可直接生成或继续调整。',
       fab: 'AI 对话生图',
       input_ph: '描述你想生成的图片…',
       send: '发送',
@@ -47,6 +68,27 @@
     },
     'zh-TW': {
       title: 'AI 對話生圖',
+      mode_label: '模式',
+      mode_auto: '全自動',
+      mode_confirm: '執行前確認',
+      mode_manual: '純手動輔助',
+      proposal_title: '待確認參數',
+      p_prompt: '正向提示詞',
+      p_negative: '負向提示詞',
+      p_width: '寬',
+      p_height: '高',
+      p_steps: '步數',
+      p_cfg: 'CFG',
+      p_seed: '種子',
+      p_batch: '張數',
+      btn_execute: '執行',
+      btn_reject: '取消',
+      btn_workbench: '帶去工作台',
+      proposal_executed: '已依確認參數排隊：{id}',
+      proposal_rejected: '已取消該參數卡片',
+      proposal_manual_note: '純手動輔助模式：不會代為生成，請至工作台執行。',
+      proposal_error: '參數卡片操作失敗：{msg}',
+      wb_filled: '參數已回填工作台，可直接生成或繼續調整。',
       fab: 'AI 對話生圖',
       input_ph: '描述你想生成的圖片…',
       send: '傳送',
@@ -66,6 +108,27 @@
     },
     'en-US': {
       title: 'AI Chat Generate',
+      mode_label: 'Mode',
+      mode_auto: 'Auto',
+      mode_confirm: 'Confirm first',
+      mode_manual: 'Manual assist',
+      proposal_title: 'Parameters to confirm',
+      p_prompt: 'Positive prompt',
+      p_negative: 'Negative prompt',
+      p_width: 'Width',
+      p_height: 'Height',
+      p_steps: 'Steps',
+      p_cfg: 'CFG',
+      p_seed: 'Seed',
+      p_batch: 'Batch',
+      btn_execute: 'Run',
+      btn_reject: 'Cancel',
+      btn_workbench: 'Send to workbench',
+      proposal_executed: 'Queued with confirmed parameters: {id}',
+      proposal_rejected: 'Parameter card dismissed',
+      proposal_manual_note: 'Manual assist mode: nothing is generated for you — run it in the workbench.',
+      proposal_error: 'Parameter card action failed: {msg}',
+      wb_filled: 'Parameters filled into the workbench — generate or keep tuning.',
       fab: 'AI chat generation',
       input_ph: 'Describe the image you want…',
       send: 'Send',
@@ -85,6 +148,27 @@
     },
     'ja-JP': {
       title: 'AI 対話生成',
+      mode_label: 'モード',
+      mode_auto: '全自動',
+      mode_confirm: '実行前に確認',
+      mode_manual: '手動アシスト',
+      proposal_title: '確認するパラメータ',
+      p_prompt: 'ポジティブプロンプト',
+      p_negative: 'ネガティブプロンプト',
+      p_width: '幅',
+      p_height: '高さ',
+      p_steps: 'ステップ',
+      p_cfg: 'CFG',
+      p_seed: 'シード',
+      p_batch: '枚数',
+      btn_execute: '実行',
+      btn_reject: 'キャンセル',
+      btn_workbench: 'ワークベンチへ',
+      proposal_executed: '確認したパラメータでキューに追加: {id}',
+      proposal_rejected: 'パラメータカードを破棄しました',
+      proposal_manual_note: '手動アシストモード: 代行生成は行いません。ワークベンチで実行してください。',
+      proposal_error: 'パラメータカードの操作に失敗: {msg}',
+      wb_filled: 'パラメータをワークベンチに反映しました。生成するか、そのまま調整できます。',
       fab: 'AI 対話生成',
       input_ph: '生成したい画像を説明してください…',
       send: '送信',
@@ -104,6 +188,27 @@
     },
     'ko-KR': {
       title: 'AI 대화 생성',
+      mode_label: '모드',
+      mode_auto: '완전 자동',
+      mode_confirm: '실행 전 확인',
+      mode_manual: '수동 보조',
+      proposal_title: '확인할 매개변수',
+      p_prompt: '긍정 프롬프트',
+      p_negative: '부정 프롬프트',
+      p_width: '너비',
+      p_height: '높이',
+      p_steps: '스텝',
+      p_cfg: 'CFG',
+      p_seed: '시드',
+      p_batch: '장수',
+      btn_execute: '실행',
+      btn_reject: '취소',
+      btn_workbench: '작업대로 보내기',
+      proposal_executed: '확인한 매개변수로 대기열에 추가: {id}',
+      proposal_rejected: '매개변수 카드를 취소했습니다',
+      proposal_manual_note: '수동 보조 모드: 대신 생성하지 않습니다. 작업대에서 실행하세요.',
+      proposal_error: '매개변수 카드 처리 실패: {msg}',
+      wb_filled: '매개변수를 작업대에 채웠습니다. 바로 생성하거나 계속 조정하세요.',
       fab: 'AI 대화 생성',
       input_ph: '생성할 이미지를 설명하세요…',
       send: '전송',
@@ -181,7 +286,20 @@
     '.agent-msg img{max-width:100%;border-radius:8px;margin-top:4px;border:1px solid rgba(0,0,0,.1)}',
     '#agent-form{display:flex;border-top:1px solid rgba(0,0,0,.12)}',
     '#agent-input{flex:1;border:none;padding:10px 12px;font-size:13px;outline:none}',
-    '#agent-send{border:none;background:#5e7d5a;color:#fff;padding:0 16px;cursor:pointer}'
+    '#agent-send{border:none;background:#5e7d5a;color:#fff;padding:0 16px;cursor:pointer}',
+    '#agent-mode{border:1px solid rgba(0,0,0,.15);border-radius:6px;font-size:12px;padding:2px 4px;background:#fff}',
+    '.agent-card{border:1px solid #c9d6c6;background:#f7faf6;border-radius:8px;padding:8px 10px;margin:8px 0}',
+    '.agent-card .ac-title{font-size:12px;font-weight:600;color:#3f5a3c;margin-bottom:6px}',
+    '.agent-card .ac-note{font-size:11px;color:#8a6d3b;margin-bottom:6px}',
+    '.agent-card label{display:block;font-size:11px;color:#666;margin:6px 0 2px}',
+    '.agent-card input,.agent-card textarea{width:100%;box-sizing:border-box;font-size:12px;padding:4px 6px;',
+    'border:1px solid rgba(0,0,0,.15);border-radius:5px;font-family:inherit}',
+    '.agent-card .ac-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 8px}',
+    '.agent-card .ac-full{grid-column:1 / -1}',
+    '.agent-card .ac-btns{display:flex;gap:8px;margin-top:9px}',
+    '.agent-card .ac-btns button{flex:1;font-size:12px;padding:5px 0;border-radius:6px;cursor:pointer;border:1px solid rgba(0,0,0,.15)}',
+    '.agent-card .ac-primary{background:#5e7d5a;color:#fff;border-color:#5e7d5a}',
+    '.agent-card.done{opacity:.6}'
   ].join('');
 
   function el(tag, cls, text) {
@@ -313,6 +431,182 @@
     if (skipped) addMsg('sys', t('img_skipped', { n: skipped }));
   }
 
+  /* ============ 会话 / 模式（双模式 5b） ============ */
+  var MODES = ['AUTO', 'CONFIRM', 'MANUAL_ASSIST'];
+  var MODE_LABEL_KEY = { AUTO: 'mode_auto', CONFIRM: 'mode_confirm', MANUAL_ASSIST: 'mode_manual' };
+  var _sessionId = null;
+  var _mode = 'AUTO';
+
+  function sessionId() {
+    if (_sessionId) return _sessionId;
+    // 多轮上下文要求同一 session_id 复用；刷新页面即开新会话（单会话假设）
+    _sessionId = 'web-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+    return _sessionId;
+  }
+
+  function currentMode() {
+    return MODES.indexOf(_mode) >= 0 ? _mode : 'AUTO';
+  }
+
+  /* ============ 参数卡片 ============ */
+  var PROPOSAL_FIELDS = [
+    { key: 'positive_prompt', label: 'p_prompt', type: 'textarea' },
+    { key: 'negative_prompt', label: 'p_negative', type: 'text' },
+    { key: 'width', label: 'p_width', type: 'number', min: 256, max: 2048, step: 8 },
+    { key: 'height', label: 'p_height', type: 'number', min: 256, max: 2048, step: 8 },
+    { key: 'steps', label: 'p_steps', type: 'number', min: 1, max: 50, step: 1 },
+    { key: 'cfg', label: 'p_cfg', type: 'number', min: 1, max: 10, step: 0.1 },
+    { key: 'seed', label: 'p_seed', type: 'number', min: -1, step: 1 },
+    { key: 'batch_size', label: 'p_batch', type: 'number', min: 1, max: 4, step: 1 }
+  ];
+  // 工作台表单元素 id（templates/index.html）：带去工作台时回填
+  var WB_TARGETS = {
+    positive_prompt: 'posPrompt',
+    negative_prompt: 'negPrompt',
+    width: 'width',
+    height: 'height',
+    steps: 'steps',
+    cfg: 'cfg',
+    seed: 'seed',
+    batch_size: 'batchSize'
+  };
+
+  function renderProposal(evt) {
+    var box = document.getElementById('agent-msgs');
+    var card = el('div', 'agent-card');
+    card.appendChild(el('div', 'ac-title', t('proposal_title')));
+    if (evt.manual) card.appendChild(el('div', 'ac-note', t('proposal_manual_note')));
+
+    var inputs = {};
+    var grid = el('div', 'ac-grid');
+    PROPOSAL_FIELDS.forEach(function (f) {
+      var wrap = el('div');
+      if (f.type === 'textarea') wrap.className = 'ac-full';
+      wrap.appendChild(el('label', null, t(f.label)));
+      var input = document.createElement(f.type === 'textarea' ? 'textarea' : 'input');
+      if (f.type === 'textarea') {
+        input.rows = 3;
+      } else {
+        input.type = f.type; // ⚠️ 必须显式设置：否则 number 字段退化成 text，collect() 会把它当字符串上行
+      }
+      if (f.type === 'number') {
+        if (f.min !== undefined) input.min = f.min;
+        if (f.max !== undefined) input.max = f.max;
+        if (f.step !== undefined) input.step = f.step;
+      }
+      var v = (evt.args || {})[f.key];
+      input.value = v === undefined || v === null ? '' : v;
+      input.dataset.field = f.key;
+      wrap.appendChild(input);
+      inputs[f.key] = input;
+      grid.appendChild(wrap);
+    });
+    card.appendChild(grid);
+
+    var btns = el('div', 'ac-btns');
+    var primary = el('button', 'ac-primary', evt.manual ? t('btn_workbench') : t('btn_execute'));
+    primary.type = 'button';
+    var secondary = el('button', null, t('btn_reject'));
+    secondary.type = 'button';
+    btns.appendChild(primary);
+    btns.appendChild(secondary);
+    card.appendChild(btns);
+    box.appendChild(card);
+    box.scrollTop = box.scrollHeight;
+
+    function collect() {
+      var params = {};
+      Object.keys(inputs).forEach(function (k) {
+        var raw = inputs[k].value;
+        if (raw === '') return;
+        params[k] = inputs[k].type === 'number' ? Number(raw) : raw;
+      });
+      return params;
+    }
+
+    function lock() {
+      card.classList.add('done');
+      primary.disabled = true;
+      secondary.disabled = true;
+    }
+
+    primary.addEventListener('click', function () {
+      if (evt.manual) {
+        fillWorkbench(collect());
+        addMsg('sys', t('wb_filled'));
+        lock();
+        return;
+      }
+      primary.disabled = true;
+      postConfirm({
+        session_id: sessionId(),
+        proposal_id: evt.proposal_id,
+        action: 'approve',
+        params: collect()
+      }).then(function (res) {
+        lock();
+        if (res && res.task_id) {
+          var m = addMsg('agent', t('proposal_executed', { id: res.task_id }));
+          pollTask(res.task_id, m);
+        } else {
+          addMsg('sys', t('proposal_rejected'));
+        }
+      }).catch(function (err) {
+        primary.disabled = false;
+        addMsg('err', t('proposal_error', { msg: err.message }));
+      });
+    });
+
+    secondary.addEventListener('click', function () {
+      secondary.disabled = true;
+      postConfirm({
+        session_id: sessionId(),
+        proposal_id: evt.proposal_id,
+        action: 'reject'
+      }).then(function () {
+        lock();
+        addMsg('sys', t('proposal_rejected'));
+      }).catch(function (err) {
+        secondary.disabled = false;
+        addMsg('err', t('proposal_error', { msg: err.message }));
+      });
+    });
+  }
+
+  function postConfirm(payload) {
+    return fetch('/api/agent/confirm', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken() || '' },
+      body: JSON.stringify(payload)
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (body) {
+        if (r.ok) return body;
+        // ⚠️ 本项目错误响应是统一封装 {success:false, error:{code,message,detail}}
+        // （middleware/error_handler.py::_build_error_response），不是 FastAPI 默认的 {detail}。
+        var msg = (body && body.detail) ||
+          (body && body.error && (body.error.message || body.error.detail)) ||
+          ('HTTP ' + r.status);
+        throw new Error(msg);
+      });
+    });
+  }
+
+  /** 把参数卡片的值回填到主工作台表单（手动/自动双模式并存的「带参数跳工作台」）。 */
+  function fillWorkbench(params) {
+    Object.keys(WB_TARGETS).forEach(function (k) {
+      if (params[k] === undefined) return;
+      var node = document.getElementById(WB_TARGETS[k]);
+      if (!node) return;
+      node.value = params[k];
+      // 触发 input/change，让 app.js 的 stepper 与参数快照同步
+      node.dispatchEvent(new Event('input', { bubbles: true }));
+      node.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    var drawer = document.getElementById('agent-drawer');
+    if (drawer) drawer.classList.remove('open');
+  }
+
   /* ============ SSE 事件 ============ */
   function handleEvent(evt) {
     if (!evt || !evt.type) return;
@@ -322,6 +616,8 @@
     } else if (evt.type === 'task_created') {
       var m = addMsg('agent', t('task_queued', { id: evt.task_id }));
       pollTask(evt.task_id, m);
+    } else if (evt.type === 'proposal') {
+      renderProposal(evt);
     } else if (evt.type === 'final') {
       addMsg('agent', evt.text);
     } else if (evt.type === 'error') {
@@ -336,7 +632,8 @@
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken() || '' },
-      body: JSON.stringify({ message: text })
+      // session_id 必须稳定复用，否则每轮都是新会话、多轮上下文（「再来一张」）失效
+      body: JSON.stringify({ message: text, session_id: sessionId(), mode: currentMode() })
     }).then(function (resp) {
       if (!resp.ok || !resp.body) { throw new Error('HTTP ' + resp.status); }
       var reader = resp.body.getReader();
@@ -379,6 +676,14 @@
     _nodes.title.textContent = t('title');
     _nodes.input.placeholder = t('input_ph');
     _nodes.send.textContent = t('send');
+    if (_nodes.modeLabel) _nodes.modeLabel.textContent = t('mode_label');
+    var opts = _nodes.mode && _nodes.mode.options;
+    if (opts) {
+      for (var i = 0; i < opts.length; i++) {
+        var key = MODE_LABEL_KEY[opts[i].value];
+        if (key) opts[i].textContent = t(key);
+      }
+    }
   }
 
   function watchLang() {
@@ -407,8 +712,36 @@
     drawer.id = 'agent-drawer';
     var head = el('div');
     head.id = 'agent-head';
+    var titleWrap = el('span');
+    titleWrap.style.display = 'flex';
+    titleWrap.style.alignItems = 'center';
+    titleWrap.style.gap = '8px';
     var title = el('span');
-    head.appendChild(title);
+    var modeLabel = el('span');
+    modeLabel.style.fontSize = '11px';
+    modeLabel.style.color = '#777';
+    var modeSel = document.createElement('select');
+    modeSel.id = 'agent-mode';
+    MODES.forEach(function (mv) {
+      var o = document.createElement('option');
+      o.value = mv;
+      o.textContent = mv;
+      modeSel.appendChild(o);
+    });
+    // 模式持久化（与 app.js 的 imm_theme / imm_lang 同一 localStorage 约定）
+    try {
+      var saved = window.localStorage.getItem('imm_agent_mode');
+      if (MODES.indexOf(saved) >= 0) _mode = saved;
+    } catch (e) { /* 隐私模式下 localStorage 可能抛错 */ }
+    modeSel.value = currentMode();
+    modeSel.addEventListener('change', function () {
+      _mode = MODES.indexOf(modeSel.value) >= 0 ? modeSel.value : 'AUTO';
+      try { window.localStorage.setItem('imm_agent_mode', _mode); } catch (e) { /* 忽略 */ }
+    });
+    titleWrap.appendChild(title);
+    titleWrap.appendChild(modeLabel);
+    titleWrap.appendChild(modeSel);
+    head.appendChild(titleWrap);
     var close = el('span', null, '—');
     close.style.cursor = 'pointer';
     close.addEventListener('click', function () { drawer.classList.remove('open'); });
@@ -428,7 +761,7 @@
     drawer.appendChild(msgs);
     drawer.appendChild(form);
 
-    _nodes = { fab: fab, title: title, input: input, send: sendBtn };
+    _nodes = { fab: fab, title: title, input: input, send: sendBtn, mode: modeSel, modeLabel: modeLabel };
     applyAgentLang();
     watchLang();
 
@@ -460,7 +793,11 @@
       normalizeStatus: normalizeStatus,
       outputUrl: outputUrl,
       t: t,
-      currentLang: currentLang
+      currentLang: currentLang,
+      currentMode: currentMode,
+      renderProposal: renderProposal,
+      fillWorkbench: fillWorkbench,
+      sessionId: sessionId
     };
   }
 })();

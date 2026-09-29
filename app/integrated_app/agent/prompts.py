@@ -22,13 +22,20 @@ MODE_AUTO = "AUTO"
 MODE_CONFIRM = "CONFIRM"
 MODE_MANUAL_ASSIST = "MANUAL_ASSIST"
 
+# 合法模式全集(路由入参校验 / orchestrator 回落判定共用)
+MODES = frozenset({MODE_AUTO, MODE_CONFIRM, MODE_MANUAL_ASSIST})
+
 _MODE_HINTS: dict[str, str] = {
     MODE_AUTO: "当前为全自动模式:用户消息即生成意图,直接选择参数并调用工具执行。",
     MODE_CONFIRM: (
         "当前为执行前确认模式:先产出参数卡片(提示词与全部可调参数)提交用户确认,"
         "用户明确同意后才调用生成工具;用户修改过的参数必须原样采用。"
+        "系统会在你调用 generate_image 时自动把参数卡片交给用户,你只负责说明方案。"
     ),
-    MODE_MANUAL_ASSIST: ("当前为纯手动辅助模式:只做提示词润色与参数建议,不调用生成工具,引导用户到工作台自行操作。"),
+    MODE_MANUAL_ASSIST: (
+        "当前为纯手动辅助模式:只做提示词润色与参数建议,不调用生成工具,"
+        "引导用户到工作台自行操作。系统不会代用户执行生成。"
+    ),
 }
 
 # ── L0 内核层(不可变) ────────────────────────────────────────

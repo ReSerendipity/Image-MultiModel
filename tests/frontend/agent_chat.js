@@ -59,6 +59,25 @@ const SSE_FRAMES = [
   'data: [DONE]\n\n'
 ];
 
+// 双模式：CONFIRM/MANUAL_ASSIST 下 generate_image 被"人闸"拦下，先出参数卡片
+const PROPOSAL_ARGS = {
+  positive_prompt: '一只戴帽子的橘猫,赛博朋克霓虹风',
+  negative_prompt: '',
+  width: 1024,
+  height: 1024,
+  steps: 8,
+  cfg: 1.0,
+  seed: -1,
+  batch_size: 1
+};
+const SSE_PROPOSAL_FRAMES = [
+  'data: {"type":"tool_call","name":"generate_image","args":{"positive_prompt":"一只戴帽子的橘猫"},"violations":[]}\n\n',
+  'data: {"type":"proposal","proposal_id":"p-abc123","mode":"CONFIRM","manual":false,"args":' +
+    JSON.stringify(PROPOSAL_ARGS) + '}\n\n',
+  'data: {"type":"final","text":"请确认参数卡片。"}\n\n',
+  'data: [DONE]\n\n'
+];
+
 function sseBody(frames) {
   const encoder = new TextEncoder();
   const chunks = frames.map((f) => encoder.encode(f));
@@ -75,13 +94,39 @@ function sseBody(frames) {
   };
 }
 
-function makeFetch(taskPayload, calls) {
-  return function fetchMock(url, opts) {
+function makeFetch(opts, calls, bodies) {
+  const taskPayload = opts.task;
+  const frames = opts.frames || SSE_FRAMES;
+  return function fetchMock(url, o) {
     const u = String(url);
-    const method = (opts && opts.method) || 'GET';
+    const method = (o && o.method) || 'GET';
     calls.push(method + ' ' + u);
+    if (o && o.body) {
+      try { bodies.push({ url: u, body: JSON.parse(o.body) }); } catch (e) { bodies.push({ url: u, body: o.body }); }
+    }
     if (u.indexOf('/api/agent/chat') === 0) {
-      return Promise.resolve({ ok: true, status: 200, body: sseBody(SSE_FRAMES) });
+      return Promise.resolve({ ok: true, status: 200, body: sseBody(frames) });
+    }
+    if (u.indexOf('/api/agent/confirm') === 0) {
+      const payload = bodies[bodies.length - 1] && bodies[bodies.length - 1].body;
+      if (opts.confirmStatus && opts.confirmStatus !== 200) {
+        // 本项目错误响应是统一封装（middleware/error_handler.py），不是 {detail}
+        return Promise.resolve({
+          ok: false, status: opts.confirmStatus,
+          json: () => Promise.resolve({
+            success: false,
+            error: { code: 'HTTP_' + opts.confirmStatus, message: '提案不存在或已过期,请重新发起需求。' }
+          })
+        });
+      }
+      return Promise.resolve({
+        ok: true, status: 200,
+        json: () => Promise.resolve(
+          payload && payload.action === 'reject'
+            ? { status: 'rejected', proposal_id: 'p-abc123' }
+            : { task_id: 't-confirmed-1', status: 'queued' }
+        )
+      });
     }
     if (u.indexOf('/api/tasks/') === 0) {
       if (!taskPayload) return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({}) });
@@ -95,26 +140,35 @@ function boot(opts) {
   opts = opts || {};
   const errors = [];
   const calls = [];
-  const dom = new JSDOM('<!DOCTYPE html><html lang="zh-CN" data-lang="zh-CN"><head></head><body></body></html>', {
-    runScripts: 'dangerously',
-    pretendToBeVisual: true,
-    url: 'http://localhost/',
-    beforeParse(w) {
-      w.fetch = makeFetch(opts.task, calls);
-      w.TextDecoder = TextDecoder;
-      w.TextEncoder = TextEncoder;
-      // CSRF 懒获取走同步 XHR：替身直接给一个 token，避免真实网络请求
-      w.XMLHttpRequest = function () {
-        this.open = function () {};
-        this.send = function () {};
-        this.getResponseHeader = function () { return 'csrf-test-token'; };
-      };
-      // 轮询周期 2000ms → 5ms，让测试不必等待
-      w.setInterval = (fn, ms) => setInterval(fn, 5);
-      w.clearInterval = (id) => clearInterval(id);
-      w.addEventListener('error', (e) => errors.push(String((e.error && e.error.message) || e.message)));
+  const bodies = [];
+  const dom = new JSDOM(
+    '<!DOCTYPE html><html lang="zh-CN" data-lang="zh-CN"><head></head><body>' +
+      // 工作台表单替身：验证"带去工作台"回填
+      '<textarea id="posPrompt"></textarea><textarea id="negPrompt"></textarea>' +
+      '<input id="width"><input id="height"><input id="steps"><input id="cfg">' +
+      '<input id="seed"><input id="batchSize">' +
+      '</body></html>',
+    {
+      runScripts: 'dangerously',
+      pretendToBeVisual: true,
+      url: 'http://localhost/',
+      beforeParse(w) {
+        w.fetch = makeFetch(opts, calls, bodies);
+        w.TextDecoder = TextDecoder;
+        w.TextEncoder = TextEncoder;
+        // CSRF 懒获取走同步 XHR：替身直接给一个 token，避免真实网络请求
+        w.XMLHttpRequest = function () {
+          this.open = function () {};
+          this.send = function () {};
+          this.getResponseHeader = function () { return 'csrf-test-token'; };
+        };
+        // 轮询周期 2000ms → 5ms，让测试不必等待
+        w.setInterval = (fn, ms) => setInterval(fn, 5);
+        w.clearInterval = (id) => clearInterval(id);
+        w.addEventListener('error', (e) => errors.push(String((e.error && e.error.message) || e.message)));
+      }
     }
-  });
+  );
   const s = dom.window.document.createElement('script');
   s.textContent = fs.readFileSync(CHAT_JS, 'utf-8');
   dom.window.document.body.appendChild(s);
@@ -123,7 +177,12 @@ function boot(opts) {
   if (dom.window.document.readyState === 'loading') {
     dom.window.document.dispatchEvent(new dom.window.Event('DOMContentLoaded'));
   }
-  return { dom, errors, calls };
+  return { dom, errors, calls, bodies };
+}
+
+function click(d, target) {
+  const el = typeof target === 'string' ? d.querySelector(target) : target;
+  el.dispatchEvent(new d.defaultView.MouseEvent('click', { bubbles: true, cancelable: true }));
 }
 
 /* ============ 用例 ============ */
@@ -242,6 +301,121 @@ function boot(opts) {
     const text = d.getElementById('agent-msgs').textContent;
     assert(!text.includes('任务失败'), '404 不得被当成失败');
     assert(text.includes('生成中'), '404 期间保持「生成中」: ' + text.slice(0, 120));
+  }
+
+  console.log('[双模式：模式切换 + 参数卡片]');
+  {
+    const { dom, calls, bodies } = boot({ task: HISTORY_DB_TASK, frames: SSE_PROPOSAL_FRAMES });
+    const d = dom.window.document;
+    const sel = d.getElementById('agent-mode');
+    assert(!!sel && sel.options.length === 3, '模式选择器有 3 档');
+    assert(sel.options[0].value === 'AUTO' && sel.options[1].value === 'CONFIRM' && sel.options[2].value === 'MANUAL_ASSIST',
+      '三档顺序 AUTO/CONFIRM/MANUAL_ASSIST');
+    assert(sel.options[1].textContent === '执行前确认', 'zh-CN 模式文案');
+
+    // 切到 CONFIRM 后发送，mode 必须随请求体上行
+    sel.value = 'CONFIRM';
+    sel.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    d.getElementById('agent-input').value = '画一只戴帽子的橘猫';
+    click(d, '#agent-send');
+    await sleep(150);
+
+    const chatBody = bodies.find((b) => b.url.indexOf('/api/agent/chat') === 0);
+    assert(chatBody && chatBody.body.mode === 'CONFIRM', 'mode=CONFIRM 已随请求体上行: ' + JSON.stringify(chatBody && chatBody.body));
+    assert(chatBody && typeof chatBody.body.session_id === 'string' && chatBody.body.session_id.length > 4,
+      'session_id 已生成并上行（多轮上下文前提）');
+
+    const card = d.querySelector('.agent-card');
+    assert(!!card, '参数卡片已渲染');
+    const fields = [...card.querySelectorAll('[data-field]')].map((n) => n.dataset.field);
+    assert(fields.length === 8, '卡片含 8 个可编辑字段: ' + fields.join(','));
+    const posBox = card.querySelector('[data-field="positive_prompt"]');
+    assert(posBox.value.indexOf('橘猫') >= 0, '卡片预填了 LLM 给出的提示词');
+    assert(card.textContent.includes('待确认参数'), '卡片标题正确');
+
+    // 用户手改参数 → 执行 → 改动必须随 confirm 上行
+    card.querySelector('[data-field="steps"]').value = '20';
+    card.querySelector('[data-field="seed"]').value = '12345';
+    const btns = card.querySelectorAll('.ac-btns button');
+    assert(btns[0].textContent === '执行' && btns[1].textContent === '取消', '确认模式按钮为「执行/取消」');
+    click(d, btns[0]);
+    await sleep(150);
+
+    const confirmBody = bodies.find((b) => b.url.indexOf('/api/agent/confirm') === 0);
+    assert(!!confirmBody, 'POST /api/agent/confirm 已发出');
+    assert(confirmBody.body.action === 'approve' && confirmBody.body.proposal_id === 'p-abc123',
+      'confirm 载荷正确: ' + JSON.stringify(confirmBody.body));
+    assert(confirmBody.body.params.steps === 20 && confirmBody.body.params.seed === 12345,
+      '用户手改的 steps/seed 已随确认上行');
+    assert(calls.some((c) => c.indexOf('GET /api/tasks/t-confirmed-1') === 0), '确认后按 task_id 进入轮询');
+    assert(d.getElementById('agent-msgs').textContent.includes('t-confirmed-1'), '确认后回显任务号');
+  }
+
+  console.log('[双模式：纯手动辅助 = 带去工作台，不代为生成]');
+  {
+    const { dom, bodies } = boot({
+      task: null,
+      frames: [
+        'data: {"type":"proposal","proposal_id":"p-manual","mode":"MANUAL_ASSIST","manual":true,"args":' +
+          JSON.stringify(PROPOSAL_ARGS) + '}\n\n',
+        'data: {"type":"final","text":"建议参数如下。"}\n\n',
+        'data: [DONE]\n\n'
+      ]
+    });
+    const d = dom.window.document;
+    const sel = d.getElementById('agent-mode');
+    sel.value = 'MANUAL_ASSIST';
+    sel.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    d.getElementById('agent-input').value = '帮我写个提示词';
+    click(d, '#agent-send');
+    await sleep(150);
+
+    const card = d.querySelector('.agent-card');
+    assert(!!card, '手动辅助也出参数卡片');
+    assert(card.textContent.includes('不会代为生成'), '卡片标注手动辅助不会代生成');
+    const btns = card.querySelectorAll('.ac-btns button');
+    assert(btns[0].textContent === '带去工作台', '手动辅助主按钮为「带去工作台」');
+
+    card.querySelector('[data-field="width"]').value = '1536';
+    click(d, btns[0]);
+    await sleep(50);
+
+    assert(d.getElementById('posPrompt').value.indexOf('橘猫') >= 0, '提示词已回填工作台 #posPrompt');
+    assert(d.getElementById('width').value === '1536', '宽度已回填工作台 #width');
+    assert(d.getElementById('steps').value === 8 || d.getElementById('steps').value === '8', 'steps 已回填工作台');
+    assert(!bodies.some((b) => b.url.indexOf('/api/agent/confirm') === 0), '手动辅助绝不调用 confirm 代为生成');
+    assert(!d.getElementById('agent-drawer').classList.contains('open'), '回填后关闭对话抽屉');
+  }
+
+  console.log('[双模式：否决与失效]');
+  {
+    const { dom, bodies } = boot({ task: null, frames: SSE_PROPOSAL_FRAMES });
+    const d = dom.window.document;
+    d.getElementById('agent-input').value = '画一只猫';
+    click(d, '#agent-send');
+    await sleep(150);
+    const card = d.querySelector('.agent-card');
+    const btns = card.querySelectorAll('.ac-btns button');
+    click(d, btns[1]); // 取消
+    await sleep(100);
+    const confirmBody = bodies.find((b) => b.url.indexOf('/api/agent/confirm') === 0);
+    assert(confirmBody && confirmBody.body.action === 'reject', 'reject 载荷正确');
+    assert(d.getElementById('agent-msgs').textContent.includes('已取消该参数卡片'), '否决回显正确');
+    assert(card.classList.contains('done'), '否决后卡片锁定');
+  }
+
+  {
+    const { dom } = boot({ task: null, frames: SSE_PROPOSAL_FRAMES, confirmStatus: 400 });
+    const d = dom.window.document;
+    d.getElementById('agent-input').value = '画一只猫';
+    click(d, '#agent-send');
+    await sleep(150);
+    const card = d.querySelector('.agent-card');
+    click(d, card.querySelectorAll('.ac-btns button')[0]);
+    await sleep(100);
+    const text = d.getElementById('agent-msgs').textContent;
+    assert(text.includes('参数卡片操作失败') && text.includes('已过期'), '提案失效错误可见: ' + text.slice(-60));
+    assert(!card.classList.contains('done'), '失败后卡片保持可重试');
   }
 
   console.log('\nRESULT: pass=' + pass + ' fail=' + fail);

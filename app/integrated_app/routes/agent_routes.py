@@ -1,19 +1,21 @@
 """
 routes/agent_routes.py — Agent 对话端点(SSE 流式)+ 真实 tool 执行器装配
 
-对应评估报告 P0 任务 4(最小闭环的服务端半边)。
+对应评估报告 P0 任务 4 / 5b(最小闭环的服务端半边 + 双模式)。
 
 路由:
-- GET  /api/agent/health — LLM 大脑健康探测(只探测,不自动拉起外部 llama-server)
-- POST /api/agent/chat   — 对话入口,返回 text/event-stream
+- GET  /api/agent/health  — LLM 大脑健康探测(只探测,不自动拉起外部 llama-server)
+- POST /api/agent/chat    — 对话入口,返回 text/event-stream
+- POST /api/agent/confirm — 双模式:确认/否决参数卡片(approve 才真正入队)
 
 SSE 事件(data: {json}\n\n,终止 data: [DONE]):
-- tool_call / task_created / tool_result / final / error(事件定义见 agent.orchestrator.AgentEvent)
+- tool_call / task_created / tool_result / proposal / final / error
+  (事件定义见 agent.orchestrator.AgentEvent)
 
 装配约束(评估报告第八章 A3 铁律):
 - tool 执行器只走 GenerationService / TaskQueue / registry(队列化),绝不复用 mcp_server 直调路径;
 - orchestrator 懒创建并缓存于 app.state.agent_orchestrator —— 测试可预注入替身;
-- 最小闭环为非流式 LLM(事件在 run_turn 完成后统一 flush);逐 token delta 与双模式留后续批次。
+- 最小闭环为非流式 LLM(事件在 run_turn 完成后统一 flush);逐 token delta 留后续批次。
 """
 
 from __future__ import annotations
@@ -22,14 +24,14 @@ import json
 import logging
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from ..agent.llm_client import LLMClient, LLMError
-from ..agent.orchestrator import MODE_AUTO, AgentEvent, AgentOrchestrator
+from ..agent.orchestrator import MODE_AUTO, AgentEvent, AgentOrchestrator, ProposalError
 from ..agent.session_store import InMemorySessionStore
 from ..config import get_project_root
 from ..engine_interface import get_registry
@@ -45,11 +47,23 @@ _MAX_POLLED_RESULT_PATHS = 8
 
 
 class AgentChatRequest(BaseModel):
-    """POST /api/agent/chat 请求体。mode 字段为双模式占位,P0 固定 AUTO(5b 批次接入)。"""
+    """POST /api/agent/chat 请求体。mode 为双模式档位(5b 已接入)。"""
 
     message: str = Field(min_length=1, max_length=8000)
     session_id: str | None = None
-    mode: str = MODE_AUTO
+    mode: Literal["AUTO", "CONFIRM", "MANUAL_ASSIST"] = MODE_AUTO
+
+
+class AgentConfirmRequest(BaseModel):
+    """POST /api/agent/confirm 请求体:确认/否决参数卡片。
+
+    ``params`` 为用户在卡片上手动修改的字段(可选);服务端仍会白名单 + 范围钳制。
+    """
+
+    session_id: str = Field(min_length=1, max_length=128)
+    proposal_id: str = Field(min_length=1, max_length=64)
+    action: Literal["approve", "reject"] = "approve"
+    params: dict[str, Any] | None = None
 
 
 def _normalize_output_path(raw: str) -> str:
@@ -167,7 +181,7 @@ async def agent_chat(req: AgentChatRequest, request: Request) -> StreamingRespon
 
     async def event_stream() -> AsyncIterator[str]:
         try:
-            events: list[AgentEvent] = await orchestrator.run_turn(req.session_id, req.message)
+            events: list[AgentEvent] = await orchestrator.run_turn(req.session_id, req.message, req.mode)
             for event in events:
                 payload = {"type": event.type, **event.data}
                 yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
@@ -186,4 +200,30 @@ async def agent_chat(req: AgentChatRequest, request: Request) -> StreamingRespon
     )
 
 
-__all__ = ["router", "AgentChatRequest", "_execute_tool", "_get_orchestrator"]
+@router.post("/confirm")
+async def agent_confirm(req: AgentConfirmRequest, request: Request) -> dict[str, Any]:
+    """POST /api/agent/confirm — 双模式参数卡片:approve 才真正入队,reject 直接丢弃。
+
+    入队仍走 ``_execute_tool`` → ``GenerationService.submit_txt2img``(队列化),
+    不新增旁路;用户手改的参数经 ``approve_proposal`` 内的白名单 + 范围钳制。
+    """
+    orchestrator = _get_orchestrator(request)
+    if req.action == "reject":
+        try:
+            return orchestrator.reject_proposal(req.session_id, req.proposal_id)
+        except ProposalError as exc:
+            raise HTTPException(400, detail=str(exc)) from exc
+
+    try:
+        return await orchestrator.approve_proposal(req.session_id, req.proposal_id, req.params)
+    except ProposalError as exc:
+        raise HTTPException(400, detail=str(exc)) from exc
+
+
+__all__ = [
+    "router",
+    "AgentChatRequest",
+    "AgentConfirmRequest",
+    "_execute_tool",
+    "_get_orchestrator",
+]

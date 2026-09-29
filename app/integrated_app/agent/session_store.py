@@ -23,6 +23,11 @@ class AgentSession:
     messages: list[dict[str, Any]] = field(default_factory=list)
     param_state: dict[str, dict[str, Any]] = field(default_factory=dict)
     referenced_task_ids: list[str] = field(default_factory=list)
+    # 双模式（评估报告任务 5b）：CONFIRM/MANUAL_ASSIST 下待用户确认的参数提案。
+    # 单槽位即可——新提案覆盖旧提案，避免用户面对多个悬空卡片。
+    pending_proposal: dict[str, Any] | None = None
+    # 最近一轮生效的模式（供系统提示词与前端回显使用）
+    mode: str = "AUTO"
 
     def history_for_llm(self) -> list[dict[str, Any]]:
         """返回可发给 LLM 的历史(排除工具原始负载,保留 role/content 语义)。"""
@@ -56,6 +61,10 @@ class InMemorySessionStore:
     def set_param_state(self, session: AgentSession, params: dict[str, Any], user_override: bool = False) -> None:
         for key, value in params.items():
             session.param_state[key] = {"value": value, "user_override": user_override}
+
+    def set_pending_proposal(self, session: AgentSession, proposal: dict[str, Any] | None) -> None:
+        """写入/清除待确认提案（双模式 5b）。"""
+        session.pending_proposal = proposal
 
     def mark_user_override(self, session: AgentSession, keys: list[str]) -> None:
         for key in keys:

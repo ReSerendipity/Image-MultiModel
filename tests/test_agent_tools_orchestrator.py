@@ -15,7 +15,11 @@ from typing import Any
 
 import pytest
 
-from app.integrated_app.agent.orchestrator import MAX_TOOL_ITERATIONS, AgentOrchestrator
+from app.integrated_app.agent.orchestrator import (
+    MAX_TOOL_ITERATIONS,
+    AgentOrchestrator,
+    ProposalError,
+)
 from app.integrated_app.agent.session_store import InMemorySessionStore
 from app.integrated_app.agent.tools import validate_tool_args
 
@@ -186,3 +190,257 @@ def test_session_store_get_or_create_idempotent():
     a = store.get_or_create("same")
     b = store.get_or_create("same")
     assert a is b
+
+
+# ── 双模式(任务 5b):CONFIRM / MANUAL_ASSIST ─────────────────
+
+
+class RecordingExecutor:
+    """记录每次执行的 tool 调用,便于断言"有没有真的执行"。"""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    async def __call__(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
+        self.calls.append((name, args))
+        if name == "generate_image":
+            return {"task_id": "TASK-CONFIRMED", "status": "queued"}
+        return {"ok": True}
+
+    @property
+    def generate_calls(self) -> list[dict[str, Any]]:
+        return [args for name, args in self.calls if name == "generate_image"]
+
+
+def _make_orch(responses: list[dict[str, Any]], executor: Any, mode: str = "AUTO") -> AgentOrchestrator:
+    return AgentOrchestrator(
+        llm=FakeLLM(responses),
+        tool_executor=executor,
+        engines=["z_image_turbo_native"],
+        loras=[],
+        mode=mode,
+    )
+
+
+_GEN_ARGS = {"positive_prompt": "一只橘猫", "steps": 8, "cfg": 1.0, "seed": -1, "width": 1024, "height": 1024}
+
+
+@pytest.mark.asyncio
+async def test_confirm_mode_gates_generate_image():
+    """CONFIRM:generate_image 只产出参数卡片,绝不入队。"""
+    executor = RecordingExecutor()
+    orch = _make_orch(
+        [
+            _resp(tool_calls=[_tool_call("generate_image", _GEN_ARGS)]),
+            _resp(content="请确认参数卡片。"),
+        ],
+        executor,
+    )
+    events = await orch.run_turn("s-confirm", "画一只橘猫", "CONFIRM")
+    types = [e.type for e in events]
+    assert "proposal" in types
+    assert "task_created" not in types
+    assert executor.generate_calls == []  # 关键:未执行
+
+    proposal_evt = next(e for e in events if e.type == "proposal")
+    assert proposal_evt.data["manual"] is False
+    assert proposal_evt.data["args"]["positive_prompt"] == "一只橘猫"
+
+    session = orch.store.get_or_create("s-confirm")
+    assert session.pending_proposal is not None
+    assert session.pending_proposal["proposal_id"] == proposal_evt.data["proposal_id"]
+    assert session.mode == "CONFIRM"
+
+
+@pytest.mark.asyncio
+async def test_manual_assist_proposal_never_executes_and_is_marked_manual():
+    executor = RecordingExecutor()
+    orch = _make_orch(
+        [
+            _resp(tool_calls=[_tool_call("generate_image", _GEN_ARGS)]),
+            _resp(content="建议参数如下。"),
+        ],
+        executor,
+    )
+    events = await orch.run_turn("s-manual", "帮我写提示词", "MANUAL_ASSIST")
+    proposal_evt = next(e for e in events if e.type == "proposal")
+    assert proposal_evt.data["manual"] is True
+    assert proposal_evt.data["mode"] == "MANUAL_ASSIST"
+    assert executor.generate_calls == []
+
+
+@pytest.mark.asyncio
+async def test_confirm_mode_still_runs_readonly_tools():
+    """人闸只拦 generate_image,list_engines/get_task 等只读工具照常执行。"""
+    executor = RecordingExecutor()
+    orch = _make_orch(
+        [
+            _resp(tool_calls=[_tool_call("list_engines", {})]),
+            _resp(content="可用引擎已列出。"),
+        ],
+        executor,
+    )
+    await orch.run_turn("s-ro", "有哪些引擎", "CONFIRM")
+    assert executor.calls == [("list_engines", {})]
+
+
+@pytest.mark.asyncio
+async def test_approve_proposal_executes_with_user_overrides():
+    executor = RecordingExecutor()
+    orch = _make_orch(
+        [
+            _resp(tool_calls=[_tool_call("generate_image", _GEN_ARGS)]),
+            _resp(content="请确认。"),
+        ],
+        executor,
+    )
+    events = await orch.run_turn("s-approve", "画一只橘猫", "CONFIRM")
+    pid = next(e for e in events if e.type == "proposal").data["proposal_id"]
+
+    result = await orch.approve_proposal("s-approve", pid, {"steps": 20, "seed": 12345})
+    assert result["task_id"] == "TASK-CONFIRMED"
+    assert len(executor.generate_calls) == 1
+    sent = executor.generate_calls[0]
+    assert sent["steps"] == 20 and sent["seed"] == 12345
+    assert sent["positive_prompt"] == "一只橘猫"
+    assert sent["engine"] == "z_image_turbo_native"
+
+    session = orch.store.get_or_create("s-approve")
+    assert session.pending_proposal is None  # 消费后清槽
+    assert session.param_state["steps"]["user_override"] is True
+    assert session.param_state["seed"]["user_override"] is True
+    assert session.param_state["positive_prompt"]["user_override"] is False
+
+
+@pytest.mark.asyncio
+async def test_approve_clamps_out_of_range_override():
+    """零信任:用户手改的参数同样受服务端范围钳制。"""
+    executor = RecordingExecutor()
+    orch = _make_orch(
+        [
+            _resp(tool_calls=[_tool_call("generate_image", _GEN_ARGS)]),
+            _resp(content="请确认。"),
+        ],
+        executor,
+    )
+    pid = next(e for e in await orch.run_turn("s-clamp", "画猫", "CONFIRM") if e.type == "proposal").data["proposal_id"]
+    result = await orch.approve_proposal("s-clamp", pid, {"steps": 9999, "width": 100, "evil": "x"})
+    assert executor.generate_calls[0]["steps"] == 50
+    assert executor.generate_calls[0]["width"] == 256
+    assert "evil" not in executor.generate_calls[0]
+    assert any("钳制" in v or "丢弃" in v for v in result["violations"])
+
+
+@pytest.mark.asyncio
+async def test_reject_proposal_clears_without_executing():
+    executor = RecordingExecutor()
+    orch = _make_orch(
+        [
+            _resp(tool_calls=[_tool_call("generate_image", _GEN_ARGS)]),
+            _resp(content="请确认。"),
+        ],
+        executor,
+    )
+    pid = next(e for e in await orch.run_turn("s-rej", "画猫", "CONFIRM") if e.type == "proposal").data["proposal_id"]
+    out = orch.reject_proposal("s-rej", pid)
+    assert out["status"] == "rejected"
+    assert orch.store.get_or_create("s-rej").pending_proposal is None
+    assert executor.generate_calls == []
+
+
+@pytest.mark.asyncio
+async def test_approve_manual_proposal_is_refused():
+    executor = RecordingExecutor()
+    orch = _make_orch(
+        [
+            _resp(tool_calls=[_tool_call("generate_image", _GEN_ARGS)]),
+            _resp(content="建议如下。"),
+        ],
+        executor,
+    )
+    pid = next(e for e in await orch.run_turn("s-man", "写提示词", "MANUAL_ASSIST") if e.type == "proposal").data[
+        "proposal_id"
+    ]
+    with pytest.raises(ProposalError, match="不可代为执行"):
+        await orch.approve_proposal("s-man", pid, {})
+    assert executor.generate_calls == []
+
+
+@pytest.mark.asyncio
+async def test_approve_unknown_or_stale_proposal_raises():
+    executor = RecordingExecutor()
+    orch = _make_orch([_resp(content="无提案")], executor)
+    with pytest.raises(ProposalError):
+        await orch.approve_proposal("s-none", "no-such-id", {})
+    with pytest.raises(ProposalError):
+        orch.reject_proposal("s-none", "no-such-id")
+
+
+@pytest.mark.asyncio
+async def test_second_proposal_overrides_first():
+    """单槽位:新提案覆盖旧提案,旧 id 立即失效。"""
+    executor = RecordingExecutor()
+    orch = _make_orch(
+        [
+            _resp(tool_calls=[_tool_call("generate_image", _GEN_ARGS)]),
+            _resp(content="第一版。"),
+            _resp(tool_calls=[_tool_call("generate_image", {**_GEN_ARGS, "steps": 12})]),
+            _resp(content="第二版。"),
+        ],
+        executor,
+    )
+    first = next(e for e in await orch.run_turn("s-slot", "画猫", "CONFIRM") if e.type == "proposal").data[
+        "proposal_id"
+    ]
+    second = next(e for e in await orch.run_turn("s-slot", "再来一版", "CONFIRM") if e.type == "proposal").data[
+        "proposal_id"
+    ]
+    assert first != second
+    with pytest.raises(ProposalError):
+        await orch.approve_proposal("s-slot", first, {})
+
+    await orch.approve_proposal("s-slot", second, {})
+    assert executor.generate_calls[0]["steps"] == 12
+
+
+@pytest.mark.asyncio
+async def test_invalid_mode_falls_back_to_auto():
+    """非法 mode 不得把系统带进"人闸"或崩溃,一律回落 AUTO。"""
+    executor = RecordingExecutor()
+    orch = _make_orch(
+        [
+            _resp(tool_calls=[_tool_call("generate_image", _GEN_ARGS)]),
+            _resp(content="已提交。"),
+        ],
+        executor,
+    )
+    events = await orch.run_turn("s-bad", "画猫", "SUPER_AUTO")
+    assert [e.type for e in events] == ["tool_call", "task_created", "tool_result", "final"]
+    assert len(executor.generate_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_auto_mode_still_executes_directly():
+    executor = RecordingExecutor()
+    orch = _make_orch(
+        [
+            _resp(tool_calls=[_tool_call("generate_image", _GEN_ARGS)]),
+            _resp(content="已提交。"),
+        ],
+        executor,
+    )
+    events = await orch.run_turn("s-auto", "画猫", "AUTO")
+    assert "proposal" not in [e.type for e in events]
+    assert len(executor.generate_calls) == 1
+
+
+def test_user_override_visible_in_system_prompt():
+    """手改参数必须在下一轮系统提示词里带 [用户已手改,必须沿用] 标记(报告第十章 #10)。"""
+    store = InMemorySessionStore()
+    orch = AgentOrchestrator(llm=FakeLLM([]), tool_executor=fake_executor, store=store, mode="CONFIRM")
+    session = store.get_or_create("s-mark")
+    store.set_param_state(session, {"steps": 20})
+    store.mark_user_override(session, ["steps"])
+    prompt = orch._system_prompt(session, "CONFIRM")
+    assert "steps = 20" in prompt
+    assert "用户已手改" in prompt
