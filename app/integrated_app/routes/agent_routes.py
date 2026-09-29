@@ -218,6 +218,8 @@ async def agent_confirm(req: AgentConfirmRequest, request: Request) -> dict[str,
         return await orchestrator.approve_proposal(req.session_id, req.proposal_id, req.params)
     except ProposalError as exc:
         raise HTTPException(400, detail=str(exc)) from exc
+    except ValueError as exc:  # 参数被改成非法值(如清空提示词)→ 400 而不是 500
+        raise HTTPException(400, detail=str(exc)) from exc
 
 
 __all__ = [

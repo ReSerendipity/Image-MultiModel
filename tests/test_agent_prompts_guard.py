@@ -10,6 +10,8 @@ tests/test_agent_prompts_guard.py — Agent 提示词组装器与注入防御原
 
 from __future__ import annotations
 
+import pytest
+
 from app.integrated_app.agent.guard import (
     clamp_generate_params,
     detect_leak,
@@ -75,7 +77,9 @@ def test_sanitize_data_item_strips_controls():
 
 
 def test_clamp_out_of_range():
-    cleaned, violations = clamp_generate_params({"steps": 999, "width": 3000, "batch_size": 10, "cfg": 0.5})
+    cleaned, violations = clamp_generate_params(
+        {"positive_prompt": "a cat", "steps": 999, "width": 3000, "batch_size": 10, "cfg": 0.5}
+    )
     assert cleaned["steps"] == 50
     assert cleaned["width"] == 2048
     assert cleaned["batch_size"] == 4
@@ -92,18 +96,25 @@ def test_clamp_drops_unknown_keys():
 
 
 def test_clamp_rejects_empty_positive():
-    _, violations = clamp_generate_params({"positive_prompt": "   "})
-    assert any("positive_prompt" in v for v in violations)
+    """空提示词必须直接拒绝执行(放行 = 让 LLM 凭空占用 GPU)。"""
+    with pytest.raises(ValueError, match="positive_prompt"):
+        clamp_generate_params({"positive_prompt": "   "})
+
+
+def test_clamp_rejects_missing_positive():
+    """缺失提示词与空提示词同等对待——此前会静默放行成空 prompt 入队。"""
+    with pytest.raises(ValueError, match="positive_prompt"):
+        clamp_generate_params({"steps": 8})
 
 
 def test_clamp_width_snaps_to_multiple_of_8():
-    cleaned, _ = clamp_generate_params({"width": 1001, "height": 777})
+    cleaned, _ = clamp_generate_params({"positive_prompt": "x", "width": 1001, "height": 777})
     assert cleaned["width"] % 8 == 0
     assert cleaned["height"] % 8 == 0
 
 
 def test_clamp_non_numeric_rejected():
-    _, violations = clamp_generate_params({"steps": "many"})
+    _, violations = clamp_generate_params({"positive_prompt": "x", "steps": "many"})
     assert any("不是数值" in v for v in violations)
 
 

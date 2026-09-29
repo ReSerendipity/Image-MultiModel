@@ -48,16 +48,21 @@ def clamp_generate_params(args: dict[str, Any]) -> tuple[dict[str, Any], list[st
     """工具参数服务端再校验:丢弃未知键、类型规整、范围钳制。
 
     返回 (cleaned_args, violations);violations 非空时调用方应把错误回喂 LLM。
+
+    Raises:
+        ValueError: ``positive_prompt`` 缺失或全空白。生成必须要有提示词,
+            放行空提示词等于让 LLM 用幻觉参数凭空占用 GPU,故直接拒绝
+            (与"未知工具"同级处理,由 orchestrator 转成 error 事件)。
     """
     cleaned: dict[str, Any] = {}
     violations: list[str] = []
 
+    if "positive_prompt" not in args or not str(args.get("positive_prompt") or "").strip():
+        raise ValueError("generate_image 缺少 positive_prompt,已拒绝执行")
+
     for key in ("positive_prompt", "negative_prompt"):
         if key in args:
-            value = str(args[key])[:10000]
-            if key == "positive_prompt" and not value.strip():
-                violations.append("positive_prompt 不能为空")
-            cleaned[key] = value
+            cleaned[key] = str(args[key])[:10000]
 
     for key, (low, high) in PARAM_RANGES.items():
         if key not in args:

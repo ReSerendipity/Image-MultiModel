@@ -172,11 +172,17 @@ class AgentOrchestrator:
                     events.append(AgentEvent("task_created", {"task_id": result["task_id"]}))
                     self.store.set_param_state(session, cleaned)
                 events.append(AgentEvent("tool_result", {"name": name, "result": result}))
+                # 评估报告 9.2 第 3 层:参数违规必须回喂 LLM 自纠(否则钳制对模型不可见,
+                # 下一轮还会拿同样的越界值再来一次)。结果与违规一起放进 tool 消息。
+                tool_payload: dict[str, Any] = {"result": result}
+                if violations:
+                    tool_payload["violations"] = violations
+                    tool_payload["instruction"] = "上述参数已被服务端修正/丢弃,请采用修正后的值,不要重复原值。"
                 messages.append(
                     {
                         "role": "tool",
                         "tool_call_id": tc.get("id", ""),
-                        "content": json.dumps(result, ensure_ascii=False),
+                        "content": json.dumps(tool_payload, ensure_ascii=False),
                     }
                 )
         else:
