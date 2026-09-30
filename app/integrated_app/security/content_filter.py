@@ -85,7 +85,9 @@ _UNSAFE_CLIP_PROMPTS: list[str] = [
 ]
 
 # CLIP 相似度判定阈值（提取为常量，便于缓存键随阈值变化而失效）
-_CLIP_THRESHOLD = 0.7
+# 2026-09-30 校准：归一化修复后实测 5 张干净图 max_sim 分布 0.219~0.384，
+# 取 0.5（高于实测最大约 30% 余量；待真实边界图集进一步校准）。
+_CLIP_THRESHOLD = 0.5
 
 # ── 提示词绕过对抗（H-03 修复：纯关键词 .lower() 可被轻易绕过）─────────────
 # 1) 同形字（Cyrillic / 数学单体等）映射到 ASCII
@@ -342,6 +344,12 @@ class ContentSafetyFilter:
             with torch.no_grad():
                 image_features = self._model.encode_image(image)
                 text_features = self._model.encode_text(text_tokens)
+                # CLIP 标准用法:encode_* 返回未归一化特征,必须先 L2 归一化再做相似度。
+                # 否则 softmax 被文本范数支配(实测各 prompt 范数 11.1~12.6,"NSFW" 最大),
+                # 任何图片都会恒定命中某个 prompt(softmax≈1.0)→ 全量误拦。
+                # 2026-09-30 修复:归一化后干净图 max_sim≈0.25(实测),详见评估报告第五轮。
+                image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+                text_features = text_features / text_features.norm(dim=-1, keepdim=True)
                 # 计算余弦相似度并 softmax
                 similarities = (100.0 * image_features @ text_features.T).softmax(dim=-1)
                 max_sim = similarities.max().item()
