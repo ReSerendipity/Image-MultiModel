@@ -31,11 +31,12 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from ..agent.llm_client import LLMClient, LLMError
-from ..agent.orchestrator import MODE_AUTO, AgentEvent, AgentOrchestrator, ProposalError
+from ..agent.orchestrator import MODE_AUTO, AgentOrchestrator, ProposalError
 from ..agent.prompts import ModeName
-from ..agent.session_store import InMemorySessionStore
+from ..agent.session_store import InMemorySessionStore, SqliteSessionStore, default_session_db_path
 from ..config import get_project_root
 from ..engine_interface import get_registry
+from ..model_manager import ensure_model_status_sse_observer
 from ..services.generation_service import GenerateRequest, GenerationService
 from ..task_queue import TaskQueue
 
@@ -142,17 +143,35 @@ async def _execute_tool(app: Any, name: str, args: dict[str, Any]) -> dict[str, 
     return {"error": f"tool {name} 未实现"}
 
 
+def _build_session_store() -> InMemorySessionStore:
+    """会话存储：优先 SQLite 持久化（重启不丢会话与参数状态），失败回落内存版。
+
+    持久化不可用（磁盘只读/目录不可建/DB 被占）时**不能让整个 Agent 不可用**——
+    降级为内存版并显式告警，行为与 P0 骨架一致。
+    """
+    try:
+        return SqliteSessionStore(default_session_db_path())
+    except Exception:  # noqa: BLE001 — 持久化失败一律降级，不阻断对话
+        logger.warning("Agent 会话持久化不可用，回落内存版（重启即丢会话）", exc_info=True)
+        return InMemorySessionStore()
+
+
 def _get_orchestrator(request: Request) -> AgentOrchestrator:
     """懒创建 orchestrator(缓存于 app.state,测试可预注入替身)。"""
     existing = getattr(request.app.state, "agent_orchestrator", None)
     if existing is not None:
         return existing
 
+    # 引擎冷启动提示（评估报告 C-8）依赖 model_status SSE；而引擎的常态加载发生在
+    # 任务 worker 里（不经过 /api/engine/load），故必须在应用装配期就把观察者挂上，
+    # 否则首个生成请求的"模型加载中"事件永远不会推送。幂等，重复调用无副作用。
+    ensure_model_status_sse_observer()
+
     loras = _list_lora_names()
     orchestrator = AgentOrchestrator(
         llm=LLMClient(),
         tool_executor=lambda name, args: _execute_tool(request.app, name, args),
-        store=InMemorySessionStore(),
+        store=_build_session_store(),
         engines=[DEFAULT_ENGINE],
         loras=loras,
         mode=MODE_AUTO,
@@ -177,13 +196,17 @@ async def agent_health(request: Request) -> dict[str, Any]:
 
 @router.post("/chat")
 async def agent_chat(req: AgentChatRequest, request: Request) -> StreamingResponse:
-    """POST /api/agent/chat — 对话 → SSE 事件流。CSRF 中间件统一校验 X-CSRF-Token。"""
+    """POST /api/agent/chat — 对话 → SSE 事件流。CSRF 中间件统一校验 X-CSRF-Token。
+
+    事件**边产边推**（``run_turn_stream`` 是 async generator）：LLM 的正文增量以
+    ``delta`` 事件即时下发，首字延迟不再等于整轮耗时；工具调用/参数卡片/成图
+    等事件同样即时可见。
+    """
     orchestrator = _get_orchestrator(request)
 
     async def event_stream() -> AsyncIterator[str]:
         try:
-            events: list[AgentEvent] = await orchestrator.run_turn(req.session_id, req.message, req.mode)
-            for event in events:
+            async for event in orchestrator.run_turn_stream(req.session_id, req.message, req.mode):
                 payload = {"type": event.type, **event.data}
                 yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
         except LLMError as exc:

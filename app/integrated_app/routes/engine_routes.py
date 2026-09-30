@@ -6,7 +6,6 @@ routes/engine_routes.py — 引擎加载 / 切换 / 卸载（PRD §2.3.3 + I-15�
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any
 
@@ -16,9 +15,8 @@ from pydantic import BaseModel
 from ..config import get_config
 from ..engine_interface import get_registry
 from ..i18n import get_error_message
-from ..model_manager import ModelManager, ModelState, get_model_manager
+from ..model_manager import ModelManager, ensure_model_status_sse_observer, get_model_manager
 from ..model_registry import get_model_registry
-from ..sse import get_sse_bus
 
 logger = logging.getLogger(__name__)
 
@@ -183,26 +181,9 @@ async def load_engine(req: EngineLoadRequest, request: Request) -> dict[str, Any
     eng_cfg = cfg.models.engines[engine_name]
     registry = get_registry()
     model_mgr = get_model_manager()
-    sse_bus = get_sse_bus()
 
-    # 注册 SSE 观察者（如果未注册）
-    if not model_mgr._observers:
-        main_loop = asyncio.get_event_loop()
-
-        def on_model_status(eng: str, state: ModelState, extra: dict):
-            asyncio.run_coroutine_threadsafe(
-                sse_bus.publish(
-                    "model_status",
-                    {
-                        "engine": eng,
-                        "state": state.value,
-                        **extra,
-                    },
-                ),
-                main_loop,
-            )
-
-        model_mgr.register_observer(on_model_status)
+    # 注册 SSE 观察者（幂等；同时覆盖 worker 按需加载这条常态路径）
+    ensure_model_status_sse_observer()
 
     def resolve_engine(name: str) -> Any:
         """按需返回真实引擎实例（含切换前旧引擎的卸载路径）。"""

@@ -1,16 +1,16 @@
 {
-  "generated_at": "2026-09-29T22:29:02.275551",
+  "generated_at": "2026-09-30T11:36:27.121918",
   "generator": "scripts/generate_integrity_manifest.py",
   "description": "核心安全模块 SHA256 完整性清单，用于启动时自检",
   "files": {
-    "app_server.py": "68de2db2bb02682424742908b50134a2c3b906a551ce677e54a03b93ed169b10",
+    "app_server.py": "bfc8f17964462348fe770a30253f85fd9fb8c1b847dc9359af5cfb582d99247c",
     "config.py": "0ca2a677c439299bb4280d36376b6a7fc8c2641e6d39b383435325740371db34",
     "config_models.py": "fc4b29e8515d21b6e8cdb9e2c53949a5ceb1368b10ae788d8f8abbb8452d77c2",
     "engine_interface.py": "17e769bb64486618ba33d6170058ed0a908beaeae761481e063e8fbc3318fb64",
-    "model_manager.py": "11f0318cec8eccc932ef3993387a6fe08d157099d5c55d8d7103718ca5359267",
+    "model_manager.py": "bc9b8a3b253371c81f0dd7729a15e2e8da1e606bc545f682f0728be014ecc449",
     "model_registry.py": "d70eb6e1ac2a36e51a4af314a79e83fbed011730e4f762f86cf6989b2c005bff",
     "task_queue.py": "4fd881836b5c255a7b525d1d1c46ebe15288386852e7a79119ba283bdc7c95ad",
-    "history_db.py": "6d19c4f703c3cb24694c892c67bca8132f7828673d6b55ef35ce4052a0986d2a",
+    "history_db.py": "24b064265a06662df43910dfee13513a1e46f1b559379dd7934cb3b1a2dbe5e3",
     "lineage.py": "4fa8334929fbaab30310e9fccec7a468922f229803d2ada473fa41f914b1633e",
     "i18n.py": "bc5bf24956a36a8332285b681f454a46d932d424550f88359987649df919a914",
     "gpu_utils.py": "4bd76f5843948cf534f627243a137804c3eeb5ace1a80ebf095c049d564e01f6",
@@ -34,7 +34,7 @@
     "routes/task_routes.py": "41d5b00b489b36c8e90d2aa2a454662257e55f9d5f92e81819505c05eef87a68",
     "routes/output_routes.py": "ae0b3313c34fa26fd3bb6d8fa5f750a82aaf3beaee3e48f844e24107a6e4074f",
     "routes/preset_routes.py": "c48cbf1d85a6911f5016f625bbeb47d282d9f32225c449c1929d0515520b7b4a",
-    "routes/engine_routes.py": "39adfe91704b3df3a1a659b09f8ade8d08e6eba4fb2547a5e1363f5e172994d1",
+    "routes/engine_routes.py": "a8ce846209315d777703a8750bb72534d9217c52fecf9ed51d39e1d88b44bc94",
     "mcp_server.py": "9a494171a3e0ee36d23aab2e104e218cdc8e379a88df7225c7dac26643d2e898"
   }
 }

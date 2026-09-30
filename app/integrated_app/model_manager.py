@@ -126,3 +126,56 @@ def get_model_manager() -> ModelManager:
     if _global_manager is None:
         _global_manager = ModelManager()
     return _global_manager
+
+
+# ── SSE 桥接（幂等） ──────────────────────────────────────────
+_observer_registered = False
+
+
+def ensure_model_status_sse_observer() -> bool:
+    """幂等注册「ModelManager → SSE ``model_status``」观察者；返回是否本次注册。
+
+    ⚠️ 为什么必须抽成公共函数（2026-09-30 修复）：
+    该观察者此前**只在 ``POST /api/engine/load`` 里注册**。而引擎的常态加载路径是
+    **任务 worker 在首个生成请求时按需加载**（``services/task_worker`` → ``create_engine_instance``
+    → ``manager.load_engine``），这条路径从不经过 ``/api/engine/load`` —— 于是
+    "模型加载中" 的 ``model_status`` 事件**在真实使用中根本不会推送**，前端无从
+    显示加载进度（评估报告第八章 C-8 的"引擎冷启动提示"因此无法只靠前端实现）。
+    现改为：应用装配期（Agent 路由首次使用 / 引擎加载端点）调用本函数，注册一次即全局生效。
+
+    必须在**有运行中事件循环**的上下文调用（路由处理器/生命周期）；无循环时返回 False
+    并告警，不抛异常。
+    """
+    global _observer_registered
+    if _observer_registered:
+        return False
+    try:
+        import asyncio
+
+        from .sse import get_sse_bus
+
+        main_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        logger.warning("model_status SSE 观察者注册失败：当前无运行中的事件循环")
+        return False
+
+    sse_bus = get_sse_bus()
+    manager = get_model_manager()
+
+    def _on_model_status(engine_name: str, state: ModelState, extra: dict) -> None:
+        payload = {"engine": engine_name, "state": state.value, **(extra or {})}
+        if main_loop.is_closed():
+            return
+        # 先建协程再提交：提交失败（关服瞬间循环已停）必须显式 close()，
+        # 否则留下 "coroutine 'SSEBus.publish' was never awaited" 的 RuntimeWarning。
+        coro = sse_bus.publish("model_status", payload)
+        try:
+            asyncio.run_coroutine_threadsafe(coro, main_loop)
+        except RuntimeError:  # pragma: no cover - 关服瞬间循环已停
+            coro.close()
+            logger.debug("model_status 推送跳过：事件循环已关闭")
+
+    manager.register_observer(_on_model_status)
+    _observer_registered = True
+    logger.info("model_status SSE 观察者已注册")
+    return True

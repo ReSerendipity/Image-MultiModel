@@ -49,6 +49,10 @@
       proposal_manual_note: '纯手动辅助模式：不会代为生成，请到工作台执行。',
       proposal_error: '参数卡片操作失败：{msg}',
       wb_filled: '参数已回填工作台，可直接生成或继续调整。',
+      model_loading: '模型加载中… {pct}%',
+      model_loading_no_pct: '模型加载中…（首次生成需数十秒，请稍候）',
+      model_ready: '模型已就绪',
+      model_failed: '模型加载失败，请查看服务端日志。',
       fab: 'AI 对话生图',
       input_ph: '描述你想生成的图片…',
       send: '发送',
@@ -89,6 +93,10 @@
       proposal_manual_note: '純手動輔助模式：不會代為生成，請至工作台執行。',
       proposal_error: '參數卡片操作失敗：{msg}',
       wb_filled: '參數已回填工作台，可直接生成或繼續調整。',
+      model_loading: '模型載入中… {pct}%',
+      model_loading_no_pct: '模型載入中…（首次生成需數十秒，請稍候）',
+      model_ready: '模型已就緒',
+      model_failed: '模型載入失敗，請查看服務端日誌。',
       fab: 'AI 對話生圖',
       input_ph: '描述你想生成的圖片…',
       send: '傳送',
@@ -129,6 +137,10 @@
       proposal_manual_note: 'Manual assist mode: nothing is generated for you — run it in the workbench.',
       proposal_error: 'Parameter card action failed: {msg}',
       wb_filled: 'Parameters filled into the workbench — generate or keep tuning.',
+      model_loading: 'Loading model… {pct}%',
+      model_loading_no_pct: 'Loading model… (first run can take tens of seconds)',
+      model_ready: 'Model ready',
+      model_failed: 'Model failed to load — check the server logs.',
       fab: 'AI chat generation',
       input_ph: 'Describe the image you want…',
       send: 'Send',
@@ -169,6 +181,10 @@
       proposal_manual_note: '手動アシストモード: 代行生成は行いません。ワークベンチで実行してください。',
       proposal_error: 'パラメータカードの操作に失敗: {msg}',
       wb_filled: 'パラメータをワークベンチに反映しました。生成するか、そのまま調整できます。',
+      model_loading: 'モデル読み込み中… {pct}%',
+      model_loading_no_pct: 'モデル読み込み中…（初回は数十秒かかります）',
+      model_ready: 'モデル準備完了',
+      model_failed: 'モデルの読み込みに失敗しました。サーバーログを確認してください。',
       fab: 'AI 対話生成',
       input_ph: '生成したい画像を説明してください…',
       send: '送信',
@@ -209,6 +225,10 @@
       proposal_manual_note: '수동 보조 모드: 대신 생성하지 않습니다. 작업대에서 실행하세요.',
       proposal_error: '매개변수 카드 처리 실패: {msg}',
       wb_filled: '매개변수를 작업대에 채웠습니다. 바로 생성하거나 계속 조정하세요.',
+      model_loading: '모델 로딩 중… {pct}%',
+      model_loading_no_pct: '모델 로딩 중… (첫 실행은 수십 초 걸립니다)',
+      model_ready: '모델 준비 완료',
+      model_failed: '모델 로딩 실패 — 서버 로그를 확인하세요.',
       fab: 'AI 대화 생성',
       input_ph: '생성할 이미지를 설명하세요…',
       send: '전송',
@@ -284,6 +304,8 @@
     '.agent-msg.sys{color:#888;font-size:12px}',
     '.agent-msg.err{color:#a32d2d;font-size:12px}',
     '.agent-msg img{max-width:100%;border-radius:8px;margin-top:4px;border:1px solid rgba(0,0,0,.1)}',
+    '.agent-msg.streaming::after{content:"▍";opacity:.55;animation:agent-blink 1s steps(2,start) infinite}',
+    '@keyframes agent-blink{to{visibility:hidden}}',
     '#agent-form{display:flex;border-top:1px solid rgba(0,0,0,.12)}',
     '#agent-input{flex:1;border:none;padding:10px 12px;font-size:13px;outline:none}',
     '#agent-send{border:none;background:#5e7d5a;color:#fff;padding:0 16px;cursor:pointer}',
@@ -384,7 +406,12 @@
     var statusLine = addMsg('sys', t('task_running', { id: taskId }));
     var timer = setInterval(function () {
       tries += 1;
-      if (tries > 150) { clearInterval(timer); statusLine.textContent = t('task_timeout', { id: taskId }); return; }
+      if (tries > 150) {
+        clearInterval(timer);
+        taskFinished();
+        statusLine.textContent = t('task_timeout', { id: taskId });
+        return;
+      }
       fetch('/api/tasks/' + encodeURIComponent(taskId), { credentials: 'same-origin' })
         .then(function (r) {
           if (r.status === 404) return null; // 尚未落库/已清理：下一轮再试
@@ -397,14 +424,17 @@
 
           if (info.status === 'completed') {
             clearInterval(timer);
+            taskFinished();
             statusLine.textContent = t('task_done', { id: taskId });
             renderOutputs(info.paths, target);
           } else if (info.status === 'failed' || info.status === 'interrupted') {
             clearInterval(timer);
+            taskFinished();
             statusLine.className = 'agent-msg err';
             statusLine.textContent = t('task_failed', { id: taskId, err: info.error || t('task_unknown') });
           } else if (info.status === 'cancelled') {
             clearInterval(timer);
+            taskFinished();
             statusLine.textContent = t('task_cancelled', { id: taskId });
           } else if (info.progress !== null) {
             statusLine.textContent = t('task_progress', { pct: info.progress });
@@ -439,8 +469,20 @@
 
   function sessionId() {
     if (_sessionId) return _sessionId;
-    // 多轮上下文要求同一 session_id 复用；刷新页面即开新会话（单会话假设）
-    _sessionId = 'web-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+    // 会话 id 存 sessionStorage：**每标签页独立**（多标签页 = 多个会话，互不串台），
+    // 但刷新页面仍能续上同一会话。localStorage 会让所有标签页共用同一会话（串台），
+    // 内存变量又扛不住刷新 —— sessionStorage 恰好是这两者的正确中间态。
+    var sid = null;
+    try {
+      sid = window.sessionStorage.getItem('imm_agent_session');
+    } catch (e) { /* 隐私模式下可能抛错 */ }
+    if (!sid) {
+      sid = 'web-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+      try {
+        window.sessionStorage.setItem('imm_agent_session', sid);
+      } catch (e) { /* 忽略 */ }
+    }
+    _sessionId = sid;
     return _sessionId;
   }
 
@@ -546,6 +588,7 @@
       }).then(function (res) {
         lock();
         if (res && res.task_id) {
+          taskStarted();
           var m = addMsg('agent', t('proposal_executed', { id: res.task_id }));
           pollTask(res.task_id, m);
         } else {
@@ -607,20 +650,112 @@
     if (drawer) drawer.classList.remove('open');
   }
 
+  /* ============ 引擎冷启动提示（model_status SSE） ============ */
+  // 引擎默认不预加载：首个生成请求会触发数十秒的加载。这里消费 model_status，
+  // 在"有在飞任务"期间显示加载进度，否则用户会以为卡死。
+  var _activeTasks = 0;
+  var _modelLine = null;
+
+  function taskStarted() {
+    _activeTasks += 1;
+  }
+
+  function taskFinished() {
+    _activeTasks = Math.max(0, _activeTasks - 1);
+    if (_activeTasks === 0) _modelLine = null;
+  }
+
+  function updateModelStatus(d) {
+    if (_activeTasks <= 0) return; // 没有在飞任务时不打扰用户
+    var state = String((d && d.state) || '').toLowerCase();
+    if (state === 'loading') {
+      if (!_modelLine) _modelLine = addMsg('sys', '');
+      var pct = typeof d.progress === 'number' ? d.progress : null;
+      _modelLine.textContent = pct === null ? t('model_loading_no_pct') : t('model_loading', { pct: pct });
+      var box = document.getElementById('agent-msgs');
+      if (box) box.scrollTop = box.scrollHeight;
+    } else if (state === 'loaded') {
+      if (_modelLine) {
+        _modelLine.textContent = t('model_ready');
+        _modelLine = null;
+      }
+    } else if (state === 'error') {
+      if (!_modelLine) _modelLine = addMsg('err', '');
+      _modelLine.textContent = t('model_failed');
+      _modelLine = null;
+    }
+  }
+
+  function watchModelStatus() {
+    // 复用 app.js 的全局唯一 SSE 连接（base.html 里 app.js 先于 chat.js 执行，
+    // 其顶层 `var evt` 即 window.evt）；拿不到时自建一条。
+    var src = null;
+    try {
+      src = window.evt;
+    } catch (e) { /* 忽略 */ }
+    if (!src || typeof src.addEventListener !== 'function') {
+      if (typeof EventSource !== 'function') return; // 环境不支持（如 jsdom）
+      try {
+        src = new EventSource('/api/events');
+      } catch (e) {
+        return;
+      }
+    }
+    src.addEventListener('model_status', function (e) {
+      try {
+        updateModelStatus(JSON.parse(e.data));
+      } catch (err) { /* 忽略坏帧 */ }
+    });
+  }
+
   /* ============ SSE 事件 ============ */
+  // 流式正文气泡：delta 逐字追加到同一个气泡；final 收尾（可能整体替换）
+  var _streamBubble = null;
+
+  function streamBubble() {
+    if (_streamBubble && _streamBubble.isConnected) return _streamBubble;
+    _streamBubble = addMsg('agent', '');
+    _streamBubble.classList.add('streaming');
+    return _streamBubble;
+  }
+
+  function endStream(text, replace) {
+    if (replace) {
+      // 流式期间已渲染的内容作废（如泄露拦截）：整体覆盖
+      var bubble = streamBubble();
+      bubble.textContent = text || '';
+      bubble.classList.remove('streaming');
+    } else if (_streamBubble) {
+      if (text) _streamBubble.textContent = text; // 以服务端最终文本为准（防分片丢字）
+      _streamBubble.classList.remove('streaming');
+    } else {
+      addMsg('agent', text);
+    }
+    _streamBubble = null;
+  }
+
   function handleEvent(evt) {
     if (!evt || !evt.type) return;
-    if (evt.type === 'tool_call') {
+    if (evt.type === 'delta') {
+      var bubble = streamBubble();
+      bubble.textContent += evt.text || '';
+      var box = document.getElementById('agent-msgs');
+      if (box) box.scrollTop = box.scrollHeight;
+    } else if (evt.type === 'tool_call') {
+      // 工具调用意味着本轮还有后续动作，先把流式气泡收尾，避免与后续文本粘连
+      if (_streamBubble) { _streamBubble.classList.remove('streaming'); _streamBubble = null; }
       var v = evt.violations && evt.violations.length ? evt.violations.join('; ') : '';
       addMsg('sys', v ? t('tool_call_fixed', { name: evt.name, v: v }) : t('tool_call', { name: evt.name }));
     } else if (evt.type === 'task_created') {
+      taskStarted();
       var m = addMsg('agent', t('task_queued', { id: evt.task_id }));
       pollTask(evt.task_id, m);
     } else if (evt.type === 'proposal') {
       renderProposal(evt);
     } else if (evt.type === 'final') {
-      addMsg('agent', evt.text);
+      endStream(evt.text, !!evt.replace);
     } else if (evt.type === 'error') {
+      if (_streamBubble) { _streamBubble.classList.remove('streaming'); _streamBubble = null; }
       addMsg('err', evt.text);
     }
   }
@@ -628,6 +763,7 @@
   function send(text, btn) {
     addMsg('user', text);
     btn.disabled = true;
+    _streamBubble = null; // 新一轮重置流式气泡
     fetch('/api/agent/chat', {
       method: 'POST',
       credentials: 'same-origin',
@@ -764,6 +900,7 @@
     _nodes = { fab: fab, title: title, input: input, send: sendBtn, mode: modeSel, modeLabel: modeLabel };
     applyAgentLang();
     watchLang();
+    watchModelStatus();
 
     fab.addEventListener('click', function () { drawer.classList.toggle('open'); });
     sendBtn.addEventListener('click', function () {
@@ -797,7 +934,10 @@
       currentMode: currentMode,
       renderProposal: renderProposal,
       fillWorkbench: fillWorkbench,
-      sessionId: sessionId
+      sessionId: sessionId,
+      updateModelStatus: updateModelStatus,
+      taskStarted: taskStarted,
+      taskFinished: taskFinished
     };
   }
 })();

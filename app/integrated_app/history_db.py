@@ -861,7 +861,12 @@ class HistoryDB:
         conn.commit()
         return count
 
-    def cleanup_old_tasks(self, keep_days: int = 30, max_gb: float = 0) -> int:
+    def cleanup_old_tasks(
+        self,
+        keep_days: int = 30,
+        max_gb: float = 0,
+        protect_task_ids: set[str] | None = None,
+    ) -> int:
         """
         清理超期任务（保留策略：天数/大小双阈值）。
 
@@ -871,6 +876,10 @@ class HistoryDB:
         Args:
             keep_days: 保留天数（0 = 不按天数清理）
             max_gb: 输出目录最大 GB（0 = 不按大小清理）
+            protect_task_ids: 白名单——这些任务**即使超期也不清理**。用于
+                "会话图片生命周期"（评估报告第八章 C-11）：Agent 对话里引用过的
+                图一旦被清理就会变成裂图，故由调用方传入活跃会话引用的 task_id。
+                传 None / 空集合 = 不保护（与历史行为一致）。
 
         Returns:
             删除的任务数
@@ -908,6 +917,15 @@ class HistoryDB:
 
         if not candidate_ids:
             return 0
+        # 会话引用保护：Agent 对话里展示过的图不能被清理成裂图（评估报告 C-11）
+        if protect_task_ids:
+            before = len(candidate_ids)
+            candidate_ids = [t for t in candidate_ids if t not in protect_task_ids]
+            protected = before - len(candidate_ids)
+            if protected:
+                logger.info("Cleanup: 跳过 %s 个被活跃会话引用的任务", protected)
+            if not candidate_ids:
+                return 0
         # 清理策略需真正释放磁盘空间 → 硬删除（文件 + DB 行）
         deleted = self.delete_tasks_with_files(list(dict.fromkeys(candidate_ids)), soft=False)
         if deleted > 0:

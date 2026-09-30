@@ -144,3 +144,39 @@ class TestModelManagerUnload:
             await manager.unload_engine("test_engine", mock_engine)
 
         assert manager.get_state("test_engine") == ModelState.ERROR
+
+
+class TestModelStatusSseObserver:
+    """``ensure_model_status_sse_observer`` —— 幂等注册 ModelManager → SSE 桥接。
+
+    修复背景（2026-09-30）：该观察者此前只在 ``POST /api/engine/load`` 内注册，
+    而引擎的常态加载发生在任务 worker 里（不经过该端点），导致
+    "模型加载中" 的 ``model_status`` 事件在真实使用中永不推送。
+    """
+
+    @pytest.mark.asyncio
+    async def test_register_then_idempotent(self):
+        import integrated_app.model_manager as mm
+
+        prev_registered, prev_manager = mm._observer_registered, mm._global_manager
+        mm._observer_registered = False
+        mm._global_manager = None
+        try:
+            assert mm.ensure_model_status_sse_observer() is True
+            assert mm.ensure_model_status_sse_observer() is False  # 幂等
+            assert len(mm.get_model_manager()._observers) == 1
+        finally:
+            mm._observer_registered = prev_registered
+            mm._global_manager = prev_manager
+
+    def test_returns_false_without_running_loop(self):
+        """同步上下文（无运行中事件循环）→ 返回 False 并告警，不抛异常。"""
+        import integrated_app.model_manager as mm
+
+        prev = mm._observer_registered
+        mm._observer_registered = False
+        try:
+            assert mm.ensure_model_status_sse_observer() is False
+            assert mm._observer_registered is False
+        finally:
+            mm._observer_registered = prev

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -44,7 +44,13 @@ _GATED_MODES = {MODE_CONFIRM, MODE_MANUAL_ASSIST}
 
 @dataclass
 class AgentEvent:
-    """SSE 事件形态:type ∈ delta | tool_call | tool_result | task_created | proposal | final | error。"""
+    """SSE 事件形态。
+
+    type ∈ delta | tool_call | tool_result | task_created | proposal | final | error
+    - ``delta``：流式正文增量（仅 ``run_turn_stream`` 产出）；
+    - ``final``：``streamed=True`` 表示正文已通过 delta 逐字渲染过（前端勿重复追加）；
+      ``replace=True`` 表示此前流出的内容作废、请用本事件文本整体覆盖气泡。
+    """
 
     type: str
     data: dict[str, Any]
@@ -98,23 +104,85 @@ class AgentOrchestrator:
         return proposal
 
     async def run_turn(self, session_id: str | None, user_text: str, mode: str | None = None) -> list[AgentEvent]:
-        """执行一轮对话,返回事件序列(SSE 接入时改为 async generator 逐事件推送)。"""
+        """执行一轮对话，返回事件序列（非流式；测试与 eval 套件的入口）。"""
+        return [event async for event in self._run_turn_impl(session_id, user_text, mode, stream=False)]
+
+    async def run_turn_stream(
+        self, session_id: str | None, user_text: str, mode: str | None = None
+    ) -> AsyncIterator[AgentEvent]:
+        """执行一轮对话，**逐事件**产出（流式；SSE 路由的入口）。
+
+        与非流式的唯一差别是 LLM 通道：这里走 ``chat_completion_stream`` 并把
+        content 增量包成 ``delta`` 事件即时产出；工具调用、人闸、泄露防护等
+        逻辑与 ``run_turn`` 完全共用同一份实现（``_run_turn_impl``）。
+        """
+        async for event in self._run_turn_impl(session_id, user_text, mode, stream=True):
+            yield event
+
+    async def _consume_stream(
+        self, messages: list[dict[str, Any]], holder: dict[str, Any]
+    ) -> AsyncIterator[AgentEvent]:
+        """消费一次流式响应：产出 delta 事件，把聚合后的消息放进 ``holder``。
+
+        泄露防护在流式下必须**边流边查**：一旦累积文本命中内核指纹就立刻停止消费，
+        由调用方把整条气泡替换成拒绝文案（已经流出去的字符无法撤回，故用 replace 语义）。
+        """
+        gen = self.llm.chat_completion_stream(messages, tools=TOOL_SCHEMAS)
+        try:
+            async for chunk in gen:
+                if chunk.get("type") == "delta":
+                    text = str(chunk.get("text") or "")
+                    if not text:
+                        continue
+                    holder["text"] += text
+                    yield AgentEvent("delta", {"text": text})
+                    if detect_leak(holder["text"], [KERNEL_PROMPT[:40]]):
+                        holder["leak"] = True
+                        return
+                elif chunk.get("type") == "done":
+                    holder["message"] = chunk.get("message") or {}
+        finally:
+            aclose = getattr(gen, "aclose", None)
+            if aclose is not None:
+                await aclose()
+
+    async def _run_turn_impl(
+        self,
+        session_id: str | None,
+        user_text: str,
+        mode: str | None,
+        *,
+        stream: bool,
+    ) -> AsyncIterator[AgentEvent]:
         active_mode = mode if mode in MODES else (self.mode if self.mode in MODES else MODE_AUTO)
         session = self.store.get_or_create(session_id)
-        session.mode = active_mode
+        self.store.set_mode(session, active_mode)
         self.store.append_user(session, user_text)
         messages: list[dict[str, Any]] = [{"role": "system", "content": self._system_prompt(session, active_mode)}]
         messages.extend(session.history_for_llm())
 
-        events: list[AgentEvent] = []
         final_text = ""
+        final_streamed = False
         for _ in range(MAX_TOOL_ITERATIONS):
-            response = await self.llm.chat_completion(messages, tools=TOOL_SCHEMAS)
-            message = (response.get("choices") or [{}])[0].get("message", {})
+            if stream:
+                holder: dict[str, Any] = {"text": "", "message": {}, "leak": False}
+                async for event in self._consume_stream(messages, holder):
+                    yield event
+                if holder["leak"]:
+                    # 已流出的内容整体作废：前端收到 replace=True 时用该文案覆盖气泡
+                    self.store.append_assistant(session, REFUSAL_TEXT)
+                    yield AgentEvent("final", {"text": REFUSAL_TEXT, "replace": True, "streamed": True})
+                    return
+                message = holder["message"] or {"content": holder["text"]}
+            else:
+                response = await self.llm.chat_completion(messages, tools=TOOL_SCHEMAS)
+                message = (response.get("choices") or [{}])[0].get("message", {})
+
             tool_calls = message.get("tool_calls") or []
 
             if not tool_calls:
                 final_text = str(message.get("content") or "")
+                final_streamed = stream
                 break
 
             messages.append({"role": "assistant", "content": message.get("content") or "", "tool_calls": tool_calls})
@@ -128,24 +196,22 @@ class AgentOrchestrator:
                 try:
                     cleaned, violations = validate_tool_args(name, raw_args)
                 except ValueError as exc:
-                    events.append(AgentEvent("error", {"text": str(exc)}))
-                    return events
+                    yield AgentEvent("error", {"text": str(exc)})
+                    return
 
-                events.append(AgentEvent("tool_call", {"name": name, "args": cleaned, "violations": violations}))
+                yield AgentEvent("tool_call", {"name": name, "args": cleaned, "violations": violations})
 
                 # 双模式人闸:CONFIRM/MANUAL_ASSIST 下 generate_image 不落库、不入队
                 if name == "generate_image" and active_mode in _GATED_MODES:
                     proposal = self._propose(session, cleaned, active_mode)
-                    events.append(
-                        AgentEvent(
-                            "proposal",
-                            {
-                                "proposal_id": proposal["proposal_id"],
-                                "mode": active_mode,
-                                "manual": proposal["manual"],
-                                "args": proposal["args"],
-                            },
-                        )
+                    yield AgentEvent(
+                        "proposal",
+                        {
+                            "proposal_id": proposal["proposal_id"],
+                            "mode": active_mode,
+                            "manual": proposal["manual"],
+                            "args": proposal["args"],
+                        },
                     )
                     result = {
                         "status": "awaiting_user_confirmation" if not proposal["manual"] else "suggestion_only",
@@ -169,9 +235,11 @@ class AgentOrchestrator:
                 result = await self.tool_executor(name, cleaned)
                 self.store.append_tool(session, name, json.dumps(result, ensure_ascii=False)[:200])
                 if name == "generate_image" and result.get("task_id"):
-                    events.append(AgentEvent("task_created", {"task_id": result["task_id"]}))
+                    yield AgentEvent("task_created", {"task_id": result["task_id"]})
                     self.store.set_param_state(session, cleaned)
-                events.append(AgentEvent("tool_result", {"name": name, "result": result}))
+                    # 登记引用：历史清理任务据此跳过，防对话里的历史图变裂图
+                    self.store.record_referenced_task(session, str(result["task_id"]))
+                yield AgentEvent("tool_result", {"name": name, "result": result})
                 # 评估报告 9.2 第 3 层:参数违规必须回喂 LLM 自纠(否则钳制对模型不可见,
                 # 下一轮还会拿同样的越界值再来一次)。结果与违规一起放进 tool 消息。
                 tool_payload: dict[str, Any] = {"result": result}
@@ -190,12 +258,17 @@ class AgentOrchestrator:
 
         if not final_text:
             final_text = "(本轮无文本回复。)"
+            final_streamed = False
         # 泄露防护:命中即替换拒绝文案
         if detect_leak(final_text, [KERNEL_PROMPT[:40]]):
             final_text = REFUSAL_TEXT
+            final_streamed = False  # 文本被整体替换，前端不能再按"已流式追加"处理
         self.store.append_assistant(session, final_text)
-        events.append(AgentEvent("final", {"text": final_text}))
-        return events
+        payload: dict[str, Any] = {"text": final_text}
+        if final_streamed:
+            # 前端据此跳过重复追加（正文已通过 delta 逐字渲染过）
+            payload["streamed"] = True
+        yield AgentEvent("final", payload)
 
     # ── 双模式:提案确认 / 否决(任务 5b) ─────────────────────
     def _take_proposal(self, session: AgentSession, proposal_id: str) -> dict[str, Any]:
@@ -244,5 +317,8 @@ class AgentOrchestrator:
         result["violations"] = violations
         self.store.append_tool(session, "generate_image", json.dumps(result, ensure_ascii=False)[:200])
         if result.get("task_id"):
+            # 注意:这里**不能**再 set_param_state(cleaned)——它会用 user_override=False
+            # 覆盖上面刚打好的"用户已手改"标记。只补登记引用即可。
+            self.store.record_referenced_task(session, str(result["task_id"]))
             self.store.append_assistant(session, f"用户确认执行,任务已入队:{result['task_id']}")
         return result

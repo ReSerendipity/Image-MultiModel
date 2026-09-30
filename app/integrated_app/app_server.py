@@ -518,7 +518,15 @@ async def lifespan(app: FastAPI):
             except Exception as e:  # noqa: BLE001
                 logger.warning("History backup before cleanup failed: %s", e)
             # 执行清理（同步删除磁盘图片文件，真正释放存储）
-            deleted = history_db.cleanup_old_tasks(keep_days=keep_days, max_gb=max_gb)
+            # 会话引用保护（评估报告 C-11）：Agent 对话里展示过的图被删会变裂图，
+            # 故把活跃会话引用的 task_id 作为白名单传下去。取不到（Agent 未使用过 /
+            # 会话库不可用）时退回不保护，不影响清理本身。
+            protected = _agent_referenced_task_ids()
+            deleted = history_db.cleanup_old_tasks(
+                keep_days=keep_days,
+                max_gb=max_gb,
+                protect_task_ids=protected,
+            )
             logger.info(f"History cleanup: deleted {deleted} tasks (keep_days={keep_days}, max_gb={max_gb})")
             # ④ 配额逼近告警（数据治理 P1-5）：删除量 0 但 outputs 超
             #    finops.storage_gb_budget 的 80% → warning + SSE 事件
@@ -643,6 +651,29 @@ async def lifespan(app: FastAPI):
     sse_bus.stop()
     history_db.close()
     logger.info("=== Image MultiModel stopped ===")
+
+
+def _agent_referenced_task_ids() -> set[str]:
+    """读取 Agent 会话库中被引用的 task_id（供历史清理做白名单，评估报告 C-11）。
+
+    直连会话库文件而不依赖 app.state：维护 cron 可能在 Agent 尚未被使用时就跑，
+    此时文件不存在 → 返回空集合（不保护，与历史行为一致）。
+    任何异常都不得影响清理本身，故整体 try/except 降级为空集合。
+    """
+    try:
+        from .agent.session_store import SqliteSessionStore, default_session_db_path
+
+        path = default_session_db_path()
+        if not path.exists():
+            return set()
+        store = SqliteSessionStore(path)
+        try:
+            return store.list_referenced_task_ids()
+        finally:
+            store.close()
+    except Exception as e:  # noqa: BLE001 — 保护失败不阻断清理
+        logger.warning("读取 Agent 会话引用失败（本次清理不启用会话保护）: %s", e)
+        return set()
 
 
 async def unload_all_engines(config) -> None:

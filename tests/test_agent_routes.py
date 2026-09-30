@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
@@ -36,6 +37,14 @@ class FakeOrchestrator:
     async def run_turn(self, session_id: str | None, message: str, mode: str | None = None) -> list[AgentEvent]:
         self.calls.append((session_id, message, mode))
         return self.events
+
+    async def run_turn_stream(
+        self, session_id: str | None, message: str, mode: str | None = None
+    ) -> AsyncIterator[AgentEvent]:
+        """SSE 路由走的是流式入口；替身按序产出同一批事件。"""
+        self.calls.append((session_id, message, mode))
+        for event in self.events:
+            yield event
 
     async def approve_proposal(
         self, session_id: str, proposal_id: str, overrides: dict[str, Any] | None = None
