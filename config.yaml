@@ -123,6 +123,52 @@ models:
       weight_version: auto-sha256:ef5baf69
       training_data_source: ''
       compatibility_matrix: {}
+    flux2_klein_native:
+      name: flux2_klein_native
+      display_name: Flux.2 Klein 9B (原生)
+      display_name_en: Flux.2 Klein 9B (Native)
+      backend: native
+      workflow_file: ''
+      parameter_schema: ''
+      comfy_source_dir: comfy_kernel
+      custom_nodes_dir: ''
+      seedvr2_source_dir: ''
+      text_encoder:
+        sub_dir: text_encoders
+        sub_path: FLUX-2-klein-9b/qwen_3_8b_fp8mixed.safetensors
+      unet:
+        sub_dir: unet
+        sub_path: FLUX-2-klein-9b/BigLoveKlein2_fp8.safetensors
+      vae:
+        sub_dir: vae
+        sub_path: FLUX.2-klein-9b/flux2-vae.safetensors
+      model_id: ''
+      local_model_dir: ''
+      vram_gb: 12.0
+      ram_gb: 32.0
+      default_precision: fp8
+      fallback_precision: fp8
+      supported_features:
+      - txt2img
+      default_width: 1024
+      default_height: 1024
+      # Flux2 latent：实测 model.latent_format 为 None，故必须显式下发（preflight 实证 1x128x32x32 @512²）
+      latent_channels: 128
+      latent_downscale: 16
+      # 实测可用组合（scripts/preflight_flux2_klein.py：euler/simple 4 步出图成功）
+      sampler: euler
+      scheduler: simple
+      image_formats:
+      - png
+      license: Apache-2.0
+      tags:
+      - txt2img
+      - native
+      - flux2
+      weight_sha256: ''
+      weight_version: ''
+      training_data_source: ''
+      compatibility_matrix: {}
 inference:
   default_steps: 10
   default_cfg: 1.0

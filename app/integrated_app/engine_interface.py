@@ -90,6 +90,10 @@ class GenerationConfig:
     # ── native latent 格式（由引擎 config 下发；None 时执行器自查）──
     latent_channels: int | None = None
     latent_downscale: int | None = None
+    # ── native 采样器 / 调度器（由引擎 config 下发；None 时执行器回退 Z-Image 默认）──
+    # 新增引擎（如 Flux.2 Klein）必须显式配置：不同架构族默认采样参数不通用于 Z-Image。
+    sampler: str | None = None
+    scheduler: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """序列化为 JSON 可存储的字典"""

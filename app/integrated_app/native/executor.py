@@ -239,8 +239,14 @@ def txt2img(
             on_progress(SAMPLING_PCT_START, "Sampling...", {})
         cancel_flag = cancel_flag if cancel_flag is not None else [False]
         steps = max(1, config.steps)
-        sigmas = comfy.samplers.calculate_sigmas(models.model_sampling, ZIMAGE_SCHEDULER, steps)
-        sampler_obj = comfy.samplers.sampler_object(ZIMAGE_SAMPLER)
+        # 采样器/调度器按引擎下发（Z-Image 常量仅作缺省回退）：
+        # Flux.2 Klein 等架构族不通用于 Z-Image 的 dpmpp_3m_sde_gpu / sgm_uniform，
+        # 实测可用组合为 euler / simple（见 scripts/preflight_flux2_klein.py）。
+        scheduler_name = getattr(config, "scheduler", None) or ZIMAGE_SCHEDULER
+        sampler_name = getattr(config, "sampler", None) or ZIMAGE_SAMPLER
+        logger.info("native sampling: sampler=%s scheduler=%s steps=%s", sampler_name, scheduler_name, steps)
+        sigmas = comfy.samplers.calculate_sigmas(models.model_sampling, scheduler_name, steps)
+        sampler_obj = comfy.samplers.sampler_object(sampler_name)
         callback = _make_sampling_callback(steps, on_progress, cancel_flag)
         sampled = comfy.samplers.sample(
             models.model,

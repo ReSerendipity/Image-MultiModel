@@ -114,6 +114,10 @@ class EngineConfig(BaseModel):
     # native 引擎 latent 格式（缺省回退模型自查 / Z-Image 的 16/8）
     latent_channels: int | None = None
     latent_downscale: int | None = None
+    # native 采样器 / 调度器（空串时执行器回退 Z-Image 默认 dpmpp_3m_sde_gpu / sgm_uniform）
+    # Flux.2 Klein 实测可用组合：euler / simple（见 scripts/preflight_flux2_klein.py）
+    sampler: str = ""
+    scheduler: str = ""
     image_formats: list[str] = Field(default_factory=lambda: ["png"])
     license: str = ""
     tags: list[str] = Field(default_factory=list)

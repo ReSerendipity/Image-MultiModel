@@ -456,19 +456,28 @@ class GenerationService:
                     if hasattr(gen_config_req, key):
                         setattr(gen_config_req, key, combo[i])
 
-                payload = gen_config_req.model_dump(exclude={"reference_image_path", "reference_image_b64"})
+                # 请求层字段（edit_mode/edit_resolution/idempotency_key 等）不属于
+                # GenerationConfig；from_dict 会按 dataclass 字段过滤，保证 worker 侧
+                # GenerationConfig(**task.config) 不再因多余字段抛 TypeError。
+                gen_config = GenerationConfig.from_dict(
+                    gen_config_req.model_dump(exclude={"reference_image_path", "reference_image_b64"})
+                )
 
                 # P3-9 强制 LoRA 兼容性矩阵（逐条校验，避免整批因单条不兼容全部失败）
                 self._validate_lora_compatibility(
                     cfg.models.engines[engine_name],
-                    GenerationConfig.from_dict(payload).effective_lora_stack(),
+                    gen_config.effective_lora_stack(),
                 )
 
                 task_id = self._task_queue.generate_task_id()
                 task = Task(
                     task_id=task_id,
                     engine=engine_name,
-                    config=payload,
+                    # 与单图路径一致：config 只存 GenerationConfig 字段。
+                    # 此前直接存 GenerateRequest 的 model_dump —— 其中 edit_mode /
+                    # edit_resolution / idempotency_key 等请求层字段会让 worker 的
+                    # GenerationConfig(**task.config) 抛 TypeError，批量任务全挂。
+                    config=gen_config.to_dict(),
                     mode="batch",
                     batch_id=batch_id,
                     request_id=request_id,
@@ -478,11 +487,9 @@ class GenerationService:
                     engine=engine_name,
                     mode="batch",
                     prompt=prompt,
-                    generation_config=payload,
+                    generation_config=gen_config.to_dict(),
                     workflow_version=compute_workflow_version(cfg.models.engines[engine_name], cfg.project_root),
-                    lora_checksums=compute_lora_checksums(
-                        GenerationConfig.from_dict(payload).effective_lora_stack(), cfg
-                    ),
+                    lora_checksums=compute_lora_checksums(gen_config.effective_lora_stack(), cfg),
                     request_id=request_id,
                 )
                 record_generation_submitted(engine_name)
@@ -545,6 +552,9 @@ class GenerationService:
             engine_name=engine_name,
             latent_channels=getattr(engine_cfg, "latent_channels", None),
             latent_downscale=getattr(engine_cfg, "latent_downscale", None),
+            # 采样器/调度器按引擎下发：Flux.2 Klein 等非 Z-Image 架构族需显式指定
+            sampler=getattr(engine_cfg, "sampler", None) or None,
+            scheduler=getattr(engine_cfg, "scheduler", None) or None,
             init_image=init_image or "",
             edit_resolution=max(0, int(req.edit_resolution or 0)),
         )
