@@ -59,10 +59,25 @@
 
 ## 验收标准（升为「待办」后）
 
-- [ ] 目标引擎在 `config.yaml` 注册、`GET /api/engines` 可见、`backend: native` 可加载出图；
-- [ ] 实机（RTX 5070 Ti 12GB）出图成功，显存预算不溢出（必要时 offload）；
-- [ ] 回归测试全绿（功能 + 安全 `PathGuard`）；
-- [ ] `workflows/blueprints/manifest.json` 对应条目标记为「已移植」。
+- [x] 目标引擎在 `config.yaml` 注册（`flux2_klein_native`，2026-09-30）、配置解析 + 三权重路径可达已验证；
+- [x] 实机（RTX 5070 Ti 12GB）出图成功 —— preflight 实测：UNet+TE+VAE 真加载，512²/4 步出图成功并存盘
+      （`outputs/_preflight_flux2klein/klein_euler_simple.png`，照片级质量；采样含 offload 约 28~112s 视负载）；
+- [x] 采样参数实测确定：`sampler=euler` + `scheduler=simple`（euler/beta、euler/sgm_uniform 未及测，首组合即通过）；
+- [ ] 回归测试全绿（全量 pytest 门禁；2026-09-30 已过 mypy 定向 + 集成冒烟，全量见 REVISION_LOG）；
+- [ ] `GET /api/engines` 真实 API 出图冒烟（8288 端口端到端）。
+
+## 实现记录（2026-09-30）
+
+| 改动 | 文件 | 说明 |
+|---|---|---|
+| sampler/scheduler 下发 | `engine_interface.py`（GenerationConfig）、`config_models.py`（EngineConfig）、`generation_service.py`、`native/executor.py` | 采样器/调度器不再硬编码 Z-Image 常量；按引擎配置下发，空值回退 Z-Image 默认 |
+| 引擎注册 | `config.yaml` → `models.engines.flux2_klein_native` | `latent_channels: 128` / `latent_downscale: 16` **必须显式**（实测 `model.latent_format` 为 None，缺省会误回退 Z-Image 的 16/8）；`sampler: euler` / `scheduler: simple` |
+| 权重挂载 | `pretrained_models/{unet,text_encoders,vae}` 三个 junction | 与既有引擎同款做法，指向 aki-v3 真实权重 |
+| preflight 脚本 | `scripts/preflight_flux2_klein.py` | 真加载+小分辨率出图的接入前自检工具（复用于未来新引擎） |
+
+**⚠️ 改动核心模块后的必做步骤（2026-09-30 实证踩坑）**：`config_models.py` / `engine_interface.py` 在完整性清单内，
+改动后启动会因清单过期直接拒绝启动（enforce）。必须依次执行：
+`python scripts/generate_integrity_manifest.py` → `python scripts/sign_integrity_manifest.py`。
 
 ## 开放问题 / 阻塞项
 
