@@ -1,7 +1,27 @@
 # P2 — native 多引擎接入（后续可选演进）
 
-> 状态：🔲 未立项（架构就绪 + 移植蓝图就绪，缺验收立项文档）
+> 状态：🟡 待办（目标引擎已选定：**Flux.2 Klein 9B fp8**；权重本机三件套齐全）
 > 关联：`workflows/blueprints/README.md`（移植参考蓝图）、`docs/roadmap/README.md`（总索引）
+
+## 已选定目标引擎：Flux.2 Klein 9B（fp8）
+
+选定依据（本机实扫证据，非估算）：
+
+| 组件 | 选定文件 | 体积 | 来源 |
+|---|---|---|---|
+| UNet | `FLUX-2-klein-9b/DarkBeast-Klein9b-V2-BFS-FP8.safetensors`（或 `BigLoveKlein2_fp8`，同 8.46GB） | 8.46 GB | aki-v3 `models/unet/FLUX-2-klein-9b/` |
+| Text Encoder | `FLUX-2-klein-9b/qwen_3_8b_fp8mixed.safetensors` | 8.07 GB | aki-v3 `models/text_encoders/FLUX-2-klein-9b/` |
+| VAE | `FLUX.2-klein-9b/`（目录已存在） | — | aki-v3 `models/vae/FLUX.2-klein-9b/` |
+
+**内核可行性（vendored `comfy_kernel` v0.38.0）**：
+- `comfy_kernel/comfy/model_detection.py:266` → `dit_config["image_model"] = "flux2"`（可识别 Flux2 权重）
+- `comfy_kernel/comfy/model_base.py` → 含 flux2 基类
+- `comfy_kernel/comfy/latent_formats.py:197` → `class Flux2(LatentFormat)`（Flux2 latent 格式齐备）
+
+**未走 diffusers 后端的原因**：`native/diffusers_engine.py` 是 **Z-Image 专用**（`ZImagePipeline`），非通用 Flux 路径；故新增引擎走 **native 后端 + 扩展 executor 到 Flux2 族**。
+
+⚠️ **显存现实（须实测）**：UNet 8.46GB + TE 8.07GB ≈ **16.5GB**，超出 RTX 5070 Ti Laptop 的 12GB VRAM
+→ 必须依赖 CPU/RAM offload（ComfyUI DynamicVRAM 机制），可接受但会降速；需实机验证 offload 可行性与耗时。
 
 ## 目标
 

@@ -1,6 +1,6 @@
 # P2 — VLM 看图聊天（后续可选演进）
 
-> 状态：🔲 空白（无任何功能设计、计划、代码或路线图条目）
+> 状态：🟡 待办（VLM 权重已确认：**Qwen3-VL-8B int8_convrot**，本机已挂载且已验证可加载）
 > 关联：`docs/roadmap/README.md`（总索引）
 > 检索结论：全仓 `grep -rni "vlm\|看图\|image chat"` 仅命中 vendored 内核里的零星变量名
 > （`comfy_kernel/.../hidream_o1/conditioning.py`、`nodes_boogu.py` 的视觉塔），**非本平台功能**。
@@ -26,9 +26,21 @@
 
 **倾向**：方案 A（复用现有 Agent + 多模态模型）优先，避免重复建设；仅在需要独立多模态能力时再拆 B。
 
+## 已确认 VLM 权重（阻塞项已解除）
+
+| 项 | 结论 | 证据 |
+|---|---|---|
+| 选定权重 | **Qwen3-VL-8B（`qwen3vl_8b_int8_convrot.safetensors`）** | `pretrained_models/text_encoders/Qwen-Image-2.1/qwen3vl_8b_int8_convrot.safetensors`，**9.35 GB** |
+| 已挂载 | ✅ 是 | 已随 P1 编辑引擎落位，config 引用 `Qwen-Image-2.1/qwen3vl_8b_int8_convrot.safetensors` |
+| 已验证可加载 | ✅ 是 | 该权重**正是编辑引擎的 text encoder**，Edit 链路实机跑通即为其可加载的实证 |
+| 体积 | 9.35 GB | 12GB VRAM 可容纳（余量约 2.6GB，需配合卸载策略） |
+| 备选（暂不选） | `qwen3vl_32b_minimax_h3_abliterated_nvfp4.safetensors`（32B nvfp4） | aki-v3 `models/text_encoders/`；32B 体积与 KV-cache 对 12GB 过载，且为 abliterated 变体 |
+
+> 注：Qwen3-VL 是**视觉-语言模型**（含视觉塔），可同时承担 TE 与看图聊天职责——复用同一权重可省一份显存。
+
 ## 依赖与阻塞项（⚠️ blocking）
 
-- ⚠️ **本地 VLM 权重缺失**：须先确定可在 12GB 显存内稳定推理的 VLM（Qwen-VL 系权重体积与 KV-cache 占用需实测）；这是启动本 P2 的硬前提。
+- ~~⚠️ 本地 VLM 权重缺失~~ → **已解除**（见上，Qwen3-VL-8B 本机已有且已验证）。
 - ⚠️ **显存预算**：文生图引擎常驻 + VLM 并发会出现 VRAM 争用，需明确加载策略（空闲卸载沿用 `ADR-0001-idle-unload-policy.md` 或请求级卸载）。
 - 前端：需在现有工作台增加「看图聊天」入口与多模态消息渲染（图片缩略图 + 气泡）。
 - 安全：看图内容同样须经 `content_filter` 管线（与出图同款 CLIP 归一化过滤），避免绕过。
