@@ -62,13 +62,21 @@ class TestConfigReload:
     """reload_config() 测试"""
 
     def test_reload_picks_up_file_changes(self, tmp_config_file):
-        """reload → 读取文件最新内容"""
+        """reload → 读取文件最新内容
+
+        ⚠️ 断言必须相对**文件自身内容**，不能硬编码 10：真实 config.yaml 会被
+        其它测试（如 test_api_contract 的 PUT /api/config）在运行期写回，
+        xdist 同 worker 下若先跑写回、再跑本用例，副本里就是别的值
+        （2026-09-30 CI 3.13 实测 assert 12 == 10）。修复 = 读文件取基线值。
+        """
+        raw = yaml.safe_load(tmp_config_file.read_text(encoding="utf-8"))
+        baseline = int(raw["inference"]["default_steps"])
+
         config = load_config(str(tmp_config_file))
-        assert config.inference.default_steps == 10
+        assert config.inference.default_steps == baseline
 
         # 直接修改 YAML 文件
-        raw = yaml.safe_load(tmp_config_file.read_text(encoding="utf-8"))
-        raw["inference"]["default_steps"] = 20
+        raw["inference"]["default_steps"] = baseline + 10
         tmp_config_file.write_text(
             yaml.dump(raw, default_flow_style=False, allow_unicode=True, sort_keys=False),
             encoding="utf-8",
@@ -76,10 +84,10 @@ class TestConfigReload:
 
         # reload
         config2 = reload_config()
-        assert config2.inference.default_steps == 20
+        assert config2.inference.default_steps == baseline + 10
 
         # 恢复
-        raw["inference"]["default_steps"] = 10
+        raw["inference"]["default_steps"] = baseline
         tmp_config_file.write_text(
             yaml.dump(raw, default_flow_style=False, allow_unicode=True, sort_keys=False),
             encoding="utf-8",
