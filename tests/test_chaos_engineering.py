@@ -85,16 +85,17 @@ class TestGPUOOMDegradation:
     def test_oom_reduces_batch_size(self):
         """大 batch OOM → chunk 推荐自动缩小"""
         from integrated_app.gpu_utils import recommend_chunk_size
+
         chunk_without_sv2 = recommend_chunk_size(9999, False)
         chunk_with_sv2 = recommend_chunk_size(9999, True)
-        assert chunk_with_sv2 < chunk_without_sv2, \
-            "SeedVR2 enabled should recommend smaller chunks"
+        assert chunk_with_sv2 < chunk_without_sv2, "SeedVR2 enabled should recommend smaller chunks"
         assert chunk_without_sv2 <= 16, "Default chunk should be <= 16"
         assert chunk_with_sv2 <= 4, "SeedVR2 chunk should be <= 4"
 
     def test_no_gpu_falls_back_to_cpu(self):
         """无 GPU 时 VRAM 估算返回 0，不崩溃"""
         from integrated_app.gpu_utils import get_gpu_info
+
         gpu = get_gpu_info()
         # 无 GPU 环境下 total_vram_gb 应为 None 或 0
         assert gpu is not None, "get_gpu_info should not crash"
@@ -134,7 +135,8 @@ class TestSQLiteDiskFull:
         """模拟磁盘满：mock create_task 方法抛出 OperationalError"""
         import sqlite3
         from unittest.mock import patch
-        with patch.object(db, 'create_task', side_effect=sqlite3.OperationalError("disk I/O error (disk full)")):
+
+        with patch.object(db, "create_task", side_effect=sqlite3.OperationalError("disk I/O error (disk full)")):
             with pytest.raises(sqlite3.OperationalError):
                 db.create_task(task_id="disk-full-test", engine="test")
 
@@ -144,7 +146,8 @@ class TestSQLiteDiskFull:
         # 模拟写入失败：mock create_task 方法抛出异常
         import sqlite3
         from unittest.mock import patch
-        with patch.object(db, 'create_task', side_effect=sqlite3.OperationalError("disk full simulation")):
+
+        with patch.object(db, "create_task", side_effect=sqlite3.OperationalError("disk full simulation")):
             with pytest.raises(sqlite3.OperationalError):
                 db.create_task(task_id="during-failure", engine="test")
 
@@ -194,8 +197,7 @@ class TestConcurrencyContention:
 
         assert len(errors) == 0, f"Concurrent write errors: {errors}"
         _, total = db.list_tasks(page=1, page_size=100)
-        assert total == num_threads * tasks_per_thread, \
-            f"Expected {num_threads * tasks_per_thread} tasks, got {total}"
+        assert total == num_threads * tasks_per_thread, f"Expected {num_threads * tasks_per_thread} tasks, got {total}"
 
     def test_concurrent_update_contention(self, db):
         """多线程并发更新同一任务 → 最后写入胜出，不崩溃"""
@@ -226,8 +228,9 @@ class TestConcurrencyContention:
         assert len(errors) == 0, f"Concurrent update errors: {errors}"
         task = db.get_task("contention-target")
         assert task is not None, "Task should survive concurrent updates"
-        assert task["status"] in ("processing", "completed", "failed"), \
+        assert task["status"] in ("processing", "completed", "failed"), (
             f"Final status should be one of valid states, got {task['status']}"
+        )
 
     def test_fts5_concurrent_search_during_write(self, db):
         """写入时并发 FTS5 搜索 → 不崩溃，不读到脏数据"""
@@ -278,6 +281,7 @@ class TestCrashRecoveryIntegrity:
     def test_checkpoint_survives_crash(self, tmp_path):
         """checkpoint 文件在"崩溃"后仍可加载"""
         from integrated_app.checkpoint import TaskCheckpoint
+
         mgr = TaskCheckpoint(checkpoint_dir=str(tmp_path))
         mgr.save(
             task_id="crash-test",
@@ -317,9 +321,7 @@ class TestCrashRecoveryIntegrity:
         """崩溃后 FTS5 索引仍可用"""
         db.create_task(task_id="fts-crash", engine="test", prompt="survival test keyword")
         db.update_task_status("fts-crash", "processing")
-        db.conn.execute(
-            "UPDATE tasks SET created_at=datetime('now', '-5 hours') WHERE task_id='fts-crash'"
-        )
+        db.conn.execute("UPDATE tasks SET created_at=datetime('now', '-5 hours') WHERE task_id='fts-crash'")
         db.conn.commit()
         db.recover_stuck_tasks(max_processing_hours=1.0)
 
@@ -363,9 +365,7 @@ class TestNetworkTimeoutResilience:
         async def main():
             start = time.time()
             try:
-                async with aiohttp.ClientSession(
-                    timeout=aiohttp.ClientTimeout(total=0.3)
-                ) as session:
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=0.3)) as session:
                     async with session.get(f"http://127.0.0.1:{port}/") as resp:
                         await resp.read()
             except Exception:
@@ -396,6 +396,7 @@ class TestResourceExhaustion:
         from integrated_app.app_server import create_app
         from integrated_app.testing.fake_engine import FakeEngine
 
+        _prev_fake = os.environ.get("IMM_FAKE_ENGINE")
         os.environ["IMM_FAKE_ENGINE"] = "1"
         orig = FakeEngine.infer_txt2img
 
@@ -413,8 +414,12 @@ class TestResourceExhaustion:
                     "/api/generate",
                     json={
                         "positive_prompt": "oom test",
-                        "cfg": 1.0, "steps": 4, "width": 256, "height": 256,
-                        "seed": 1, "batch_size": 1,
+                        "cfg": 1.0,
+                        "steps": 4,
+                        "width": 256,
+                        "height": 256,
+                        "seed": 1,
+                        "batch_size": 1,
                         "engine_name": "z_image_turbo_native",
                     },
                 )
@@ -432,7 +437,13 @@ class TestResourceExhaustion:
                 assert c.get("/api/health").status_code == 200
         finally:
             FakeEngine.infer_txt2img = orig  # type: ignore[assignment]
-            os.environ.pop("IMM_FAKE_ENGINE", "")
+            # 必须回填原值而不是直接 pop:conftest 用 setdefault 把
+            # IMM_FAKE_ENGINE 设为默认 "1",直接 pop 会让后续测试文件丢掉
+            # 假引擎(无 torch 环境下构建真 NativeEngine 直接 500)。
+            if _prev_fake is None:
+                os.environ.pop("IMM_FAKE_ENGINE", "")
+            else:
+                os.environ["IMM_FAKE_ENGINE"] = _prev_fake
 
     def test_cpu_pressure_latency_under_load(self):
         """CPU 满载下 /api/health 仍应响应（单 Worker 串行化不应饿死 API）。"""
@@ -442,6 +453,7 @@ class TestResourceExhaustion:
 
         from integrated_app.app_server import create_app
 
+        _prev_fake = os.environ.get("IMM_FAKE_ENGINE")
         os.environ["IMM_FAKE_ENGINE"] = "1"
         try:
             with TestClient(create_app()) as c:
@@ -478,4 +490,10 @@ class TestResourceExhaustion:
                 p95 = sorted(latencies)[int(len(latencies) * 0.95) - 1]
                 assert p95 < 30000, f"CPU 压力下 /api/health P95={p95:.0f}ms，疑似完全饿死"
         finally:
-            os.environ.pop("IMM_FAKE_ENGINE", "")
+            # 必须回填原值而不是直接 pop:conftest 用 setdefault 把
+            # IMM_FAKE_ENGINE 设为默认 "1",直接 pop 会让后续测试文件丢掉
+            # 假引擎(无 torch 环境下构建真 NativeEngine 直接 500)。
+            if _prev_fake is None:
+                os.environ.pop("IMM_FAKE_ENGINE", "")
+            else:
+                os.environ["IMM_FAKE_ENGINE"] = _prev_fake

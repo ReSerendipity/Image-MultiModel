@@ -89,20 +89,68 @@ class TestEngineLoad:
             assert body["engine_name"] == "z_image_turbo_native"
             assert body["status"] in ("loaded", "error", "loading")
 
-    def test_load_succeeds_despite_none_factory_placeholder(self, client: TestClient) -> None:
+    def test_load_succeeds_despite_none_factory_placeholder(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """回归：``_factories[name] = None`` 延迟注册占位不得让加载链拿到 None。
 
         此前 ``engine_routes.load_engine`` 用 ``name not in registry._factories``
         判空——占位键存在 ⇒ 条件恒假 ⇒ 真实工厂永不注册 ⇒ ``registry.get()`` 返回
         None ⇒ ``None.load()`` 报 ``'NoneType' object has no attribute 'load'``。
         修复后必须真正走到 ``status == "loaded"``。
+
+        ⚠️ 必须显式设定 ``IMM_FAKE_ENGINE``：``tests/test_chaos_engineering.py`` 的
+        finally 会 ``os.environ.pop("IMM_FAKE_ENGINE")``（不回填原值），单进程全量
+        跑时该变量在 chaos 之后就不再是 conftest 的默认值——那时本用例会去构建
+        真 NativeEngine 并在无 torch 环境 500。monkeypatch 保证本用例自洽且用完还原。
         """
+        monkeypatch.setenv("IMM_FAKE_ENGINE", "1")
         r = client.post("/api/engine/load", json={"engine_name": "z_image_turbo_native"})
         assert r.status_code == 200, f"Got {r.status_code}: {r.text[:200]}"
         body = r.json()
         assert body["status"] == "loaded", f"未真正加载：{body}"
         assert "NoneType" not in body.get("message", "")
         assert "has no attribute" not in body.get("message", "")
+
+
+class TestEnsureEngineFactory:
+    """``_ensure_engine`` 的确定性单测(不依赖 torch / 真实 GPU 环境)。"""
+
+    def test_none_placeholder_gets_a_real_factory(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from types import SimpleNamespace
+
+        from app.integrated_app.engine_interface import InMemoryEngineRegistry
+        from app.integrated_app.routes import engine_routes
+
+        sentinel = object()
+        created: list[dict] = []
+
+        class FakeModelRegistry:
+            def create_engine_instance(self, **kwargs):  # type: ignore[no-untyped-def]
+                created.append(kwargs)
+                return sentinel
+
+        monkeypatch.setattr(engine_routes, "get_model_registry", lambda: FakeModelRegistry())
+
+        reg = InMemoryEngineRegistry()
+        reg._factories["z_image_turbo_native"] = None  # type: ignore[assignment]  # 延迟注册占位
+        cfg = SimpleNamespace(
+            display_name="Z-Image Turbo",
+            display_name_en="Z-Image Turbo",
+            backend="native",
+            model_dump=lambda: {"name": "z_image_turbo_native"},
+        )
+
+        inst = engine_routes._ensure_engine(reg, "z_image_turbo_native", cfg)
+        assert inst is sentinel, "占位工厂必须被替换为真实工厂"
+        assert reg.has_factory("z_image_turbo_native") is True
+        assert reg.get("z_image_turbo_native") is sentinel
+        assert created and created[0]["backend"] == "native"
+
+        # 幂等:已有真实工厂时不得重复构建
+        again = engine_routes._ensure_engine(reg, "z_image_turbo_native", cfg)
+        assert again is sentinel
+        assert len(created) == 1
 
 
 class TestEngineRegistryFactorySemantics:
