@@ -55,3 +55,7 @@
 # 无扩展名构建/清单文件固定 LF
 Dockerfile text eol=lf
 Makefile text eol=lf
+
+# Windows 批处理必须 CRLF(cmd 解析 LF-only 脚本会产生碎片化命令错误,2026-09-30)
+*.bat text eol=crlf
+*.cmd text eol=crlf
