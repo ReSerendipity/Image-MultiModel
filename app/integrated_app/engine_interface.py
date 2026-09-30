@@ -80,6 +80,13 @@ class GenerationConfig:
     engine_name: str = ""
     workflow_sha256: str = ""
 
+    # ── 编辑（P1：Qwen-Image 2.1 Edit）──
+    # 参考图本地路径（相对 outputs/ 的绝对路径皆可，须经 PathGuard 校验后传入）。
+    # 非空时 task_worker 会调度 ``infer_edit`` 而非 ``infer_txt2img``。
+    init_image: str = ""
+    # 编辑引擎的参考图分辨率（参考图缩放到 ~resolution²，32 的倍数；0 = 按原图）
+    edit_resolution: int = 1024
+
     # ── native latent 格式（由引擎 config 下发；None 时执行器自查）──
     latent_channels: int | None = None
     latent_downscale: int | None = None
@@ -161,6 +168,25 @@ class ImageEngine(Protocol):
             输出图像路径列表（original / upscaled / compare）
         """
         ...
+
+    async def infer_edit(
+        self,
+        config: GenerationConfig,
+        on_progress: ProgressCallback | None = None,
+    ) -> list[str]:
+        """执行图像编辑推理（参考图 + 编辑指令）。
+
+        默认实现：声明 ``supported_features`` 含 ``edit`` 的引擎必须实现；
+        未实现的引擎抛 ``NotImplementedError``（由 worker 转 task failed）。
+
+        Args:
+            config: generation_config（``init_image`` 指向参考图）
+            on_progress: 推理进度回调
+
+        Returns:
+            输出图像路径列表
+        """
+        raise NotImplementedError("this engine does not support image editing")
 
     async def cancel(self) -> None:
         """取消当前推理（发送 /interrupt + 清理队列）"""

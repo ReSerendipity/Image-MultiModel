@@ -222,6 +222,14 @@ class ZImageDiffusersEngine:
         self._model_dir = None
         logger.info(f"ZImageDiffusersEngine '{self._name}' unloaded")
 
+    async def infer_edit(
+        self,
+        config: GenerationConfig,
+        on_progress: ProgressCallback | None = None,
+    ) -> list[str]:
+        """diffusers 后端暂不支持编辑（P1 编辑走 NativeEngine/Qwen-Image 2.1）。"""
+        raise NotImplementedError("diffusers engine does not support image editing")
+
     async def infer_txt2img(
         self,
         config: GenerationConfig,

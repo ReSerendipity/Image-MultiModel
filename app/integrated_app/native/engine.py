@@ -20,7 +20,7 @@ from ..config import get_config
 from ..config_models import resolve_engine_model_paths
 from ..engine_interface import GenerationConfig, ProgressCallback
 from ..security.path_guard import PathGuard
-from . import executor, output_pipeline
+from . import edit_executor, executor, output_pipeline
 
 logger = logging.getLogger(__name__)
 
@@ -185,6 +185,16 @@ class NativeEngine:
         if not self._ready or not self._model_paths:
             raise RuntimeError("Native engine not ready, please load first")
 
+        # 能力守卫（P1）：仅支持编辑的引擎（如 qwen_image_edit_native）走 txt2img
+        # 会用错 latent 格式（2.1 是 64 通道/16 下采样，Z-Image 是 16/8）产出垃圾图，
+        # 故在引擎层显式拒绝，提示用户提供参考图或换引擎。
+        features = set(self._config.get("supported_features") or [])
+        if "edit" in features and "txt2img" not in features:
+            raise ValueError(
+                f"引擎 '{self._name}' 仅支持图像编辑(edit)：请提供参考图走编辑链路，"
+                "或选择支持文生图的引擎(如 z_image_turbo_native)"
+            )
+
         self._cancel_requested = False
         cancel_flag = [False]
 
@@ -214,6 +224,55 @@ class NativeEngine:
             )
 
             # 注册取消：内部标志置位 + 取消 future
+            watcher = asyncio.create_task(self._watch_cancel(fut, cancel_cb))
+            try:
+                images = await fut
+            finally:
+                watcher.cancel()
+                self._cancel_requested = False
+
+        return self._save_outputs(images, config)
+
+    async def infer_edit(
+        self,
+        config: GenerationConfig,
+        on_progress: ProgressCallback | None = None,
+    ) -> list[str]:
+        """执行进程内图像编辑（Qwen-Image 2.1 Edit，参考图 + 编辑指令）。"""
+        if not self._ready or not self._model_paths:
+            raise RuntimeError("Native engine not ready, please load first")
+        init_image = (getattr(config, "init_image", "") or "").strip()
+        if not init_image:
+            raise ValueError("infer_edit requires GenerationConfig.init_image (reference image path)")
+
+        self._cancel_requested = False
+        cancel_flag = [False]
+
+        def cancel_cb() -> None:
+            cancel_flag[0] = True
+
+        from ..observability.tracing import get_tracer
+
+        tracer = get_tracer("native_engine")
+        loop = asyncio.get_event_loop()
+        with tracer.start_span(
+            "infer_edit",
+            attributes={
+                "engine": self._name,
+                "edit_resolution": getattr(config, "edit_resolution", None),
+            },
+        ):
+            fut = loop.run_in_executor(
+                None,
+                lambda: edit_executor.edit(
+                    config,
+                    self._model_paths,
+                    init_image,
+                    on_progress=on_progress,
+                    cancel_flag=cancel_flag,
+                    resolution=int(getattr(config, "edit_resolution", 0) or 1024),
+                ),
+            )
             watcher = asyncio.create_task(self._watch_cancel(fut, cancel_cb))
             try:
                 images = await fut

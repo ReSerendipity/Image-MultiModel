@@ -34,7 +34,7 @@ from ..agent.llm_client import LLMClient, LLMError
 from ..agent.orchestrator import MODE_AUTO, AgentOrchestrator, ProposalError
 from ..agent.prompts import ModeName
 from ..agent.session_store import InMemorySessionStore, SqliteSessionStore, default_session_db_path
-from ..config import get_project_root
+from ..config import get_config, get_project_root
 from ..engine_interface import get_registry
 from ..model_manager import ensure_model_status_sse_observer
 from ..services.generation_service import GenerateRequest, GenerationService
@@ -112,6 +112,9 @@ async def _execute_tool(app: Any, name: str, args: dict[str, Any]) -> dict[str, 
         resp = await service.submit_txt2img(req)
         return {"task_id": resp.task_id, "status": "queued"}
 
+    if name == "edit_image":
+        return await _execute_edit_image(app, task_queue, history_db, args)
+
     if name == "get_task":
         tid = str(args["task_id"])
         for task in task_queue.list_tasks():
@@ -141,6 +144,92 @@ async def _execute_tool(app: Any, name: str, args: dict[str, Any]) -> dict[str, 
         return {"loras": _list_lora_names()}
 
     return {"error": f"tool {name} 未实现"}
+
+
+def _resolve_edit_reference(app: Any, args: dict[str, Any]) -> str:
+    """解析 ``edit_image`` 的参考图路径（PathGuard 白名单内、存在的本地文件）。
+
+    来源二选一：
+    - ``task_id``：取该任务的**第一张输出**（对话里最自然的引用方式——
+      "把刚才那张图的背景换成雪地"）；
+    - ``reference_path``：PathGuard 白名单内的路径（如用户上传目录里的图）。
+
+    Raises:
+        ValueError: 两个来源都解析失败（消息会作为 error 事件回喂 LLM 与用户）。
+    """
+    task_id = str(args.get("task_id") or "").strip()
+    reference_path = str(args.get("reference_path") or "").strip()
+
+    if task_id:
+        first = ""
+        for task in app.state.task_queue.list_tasks():
+            if task.task_id == task_id and task.result:
+                first = str(task.result[0])
+                break
+        if not first:
+            # 队列里没有（可能已完成很久被移出内存）→ 落库的 tasks/outputs 兜底
+            try:
+                record = app.state.history_db.get_task(task_id)
+                outputs = (record or {}).get("outputs") or []
+                originals = [o for o in outputs if o.get("output_type") == "original"]
+                first = str((originals or outputs or [{}])[0].get("path") or "")
+            except Exception:  # noqa: BLE001 — 历史库不可用时回退到报错
+                first = ""
+        if first:
+            base = Path(get_project_root()) / get_config().output.base_dir
+            candidate = Path(first)
+            return str(candidate if candidate.is_absolute() else (base / candidate).resolve())
+        raise ValueError(f"任务 {task_id} 没有可用的输出图片")
+
+    if reference_path:
+        from ..config import get_config as _get_config
+        from ..security.path_guard import PathGuard, PathGuardError
+
+        cfg = _get_config()
+        guard = PathGuard(cfg.security.allowed_base_dirs, cfg.project_root)
+        try:
+            safe = guard.resolve(reference_path)
+        except PathGuardError as e:
+            raise ValueError(f"参考图路径越权被拒绝: {e}") from e
+        if not Path(safe).is_file():
+            raise ValueError(f"参考图不存在: {reference_path}")
+        return str(safe)
+
+    raise ValueError("edit_image 缺少参考图来源(task_id / reference_path)")
+
+
+async def _execute_edit_image(
+    app: Any,
+    task_queue: TaskQueue,
+    history_db: Any,
+    args: dict[str, Any],
+) -> dict[str, Any]:
+    """``edit_image`` 工具执行：参考图解析 → 编辑模式入队（走 GenerationService 队列化链路）。"""
+    cfg = get_config()
+    edit_engine = None
+    for name, ecfg in cfg.models.engines.items():
+        if "edit" in (ecfg.supported_features or []):
+            edit_engine = name
+            break
+    if edit_engine is None:
+        return {"error": "当前配置没有支持编辑的引擎（需要 supported_features 含 edit）"}
+
+    try:
+        reference = _resolve_edit_reference(app, args)
+    except ValueError as exc:
+        return {"error": str(exc)}
+
+    allowed = ("positive_prompt", "negative_prompt", "steps", "cfg", "seed", "batch_size", "edit_resolution")
+    req = GenerateRequest(**{k: args[k] for k in allowed if k in args})
+    req.engine_name = edit_engine
+    req.edit_mode = True
+    req.reference_image_path = reference
+    req.seedvr2_enable = False
+    req.eses_enable = False
+
+    service = GenerationService(task_queue=task_queue, history_db=history_db)
+    resp = await service.submit_txt2img(req)
+    return {"task_id": resp.task_id, "status": "queued", "engine": edit_engine}
 
 
 def _build_session_store() -> InMemorySessionStore:

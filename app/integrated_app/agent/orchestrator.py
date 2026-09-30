@@ -39,7 +39,10 @@ MAX_TOOL_ITERATIONS = 5
 REFUSAL_TEXT = "(该回复因包含敏感信息模式被拦截,请调整问题后重试。)"
 
 # 需要"人闸"的模式:不直接执行 generate_image,先出参数卡片
+# 人闸生效的模式档位（AUTO 不闸）
 _GATED_MODES = {MODE_CONFIRM, MODE_MANUAL_ASSIST}
+# 需要人闸的「写」工具（SOP-8：闸口位置唯一，新增工具只改这里）
+GATED_TOOLS = {"generate_image", "edit_image"}
 
 
 @dataclass
@@ -91,11 +94,13 @@ class AgentOrchestrator:
             param_state=session.param_state or None,
         )
 
-    def _propose(self, session: AgentSession, args: dict[str, Any], mode: str) -> dict[str, Any]:
+    def _propose(
+        self, session: AgentSession, args: dict[str, Any], mode: str, tool: str = "generate_image"
+    ) -> dict[str, Any]:
         """登记待确认提案(单槽位:新提案覆盖旧提案)。"""
         proposal = {
             "proposal_id": uuid.uuid4().hex[:12],
-            "tool": "generate_image",
+            "tool": tool,
             "mode": mode,
             "manual": mode == MODE_MANUAL_ASSIST,
             "args": dict(args),
@@ -202,12 +207,13 @@ class AgentOrchestrator:
                 yield AgentEvent("tool_call", {"name": name, "args": cleaned, "violations": violations})
 
                 # 双模式人闸:CONFIRM/MANUAL_ASSIST 下 generate_image 不落库、不入队
-                if name == "generate_image" and active_mode in _GATED_MODES:
-                    proposal = self._propose(session, cleaned, active_mode)
+                if name in GATED_TOOLS and active_mode in _GATED_MODES:
+                    proposal = self._propose(session, cleaned, active_mode, tool=name)
                     yield AgentEvent(
                         "proposal",
                         {
                             "proposal_id": proposal["proposal_id"],
+                            "tool": name,
                             "mode": active_mode,
                             "manual": proposal["manual"],
                             "args": proposal["args"],
@@ -234,7 +240,7 @@ class AgentOrchestrator:
 
                 result = await self.tool_executor(name, cleaned)
                 self.store.append_tool(session, name, json.dumps(result, ensure_ascii=False)[:200])
-                if name == "generate_image" and result.get("task_id"):
+                if name in GATED_TOOLS and result.get("task_id"):
                     yield AgentEvent("task_created", {"task_id": result["task_id"]})
                     self.store.set_param_state(session, cleaned)
                     # 登记引用：历史清理任务据此跳过，防对话里的历史图变裂图
@@ -302,20 +308,22 @@ class AgentOrchestrator:
         if proposal.get("manual"):
             raise ProposalError("纯手动辅助模式的提案不可代为执行,请到工作台自行生成。")
 
+        tool = str(proposal.get("tool") or "generate_image")
         merged = dict(proposal.get("args") or {})
         overrides = {k: v for k, v in (overrides or {}).items() if v is not None and v != ""}
         merged.update(overrides)
-        cleaned, violations = validate_tool_args("generate_image", merged)
+        # 用提案自己的工具名校验/执行 —— edit_image 的参数白名单与 generate_image 不同
+        cleaned, violations = validate_tool_args(tool, merged)
 
         self.store.set_param_state(session, cleaned)
         if overrides:
             self.store.mark_user_override(session, [k for k in overrides if k in session.param_state])
         self.store.set_pending_proposal(session, None)
 
-        result = await self.tool_executor("generate_image", cleaned)
+        result = await self.tool_executor(tool, cleaned)
         result = dict(result)
         result["violations"] = violations
-        self.store.append_tool(session, "generate_image", json.dumps(result, ensure_ascii=False)[:200])
+        self.store.append_tool(session, tool, json.dumps(result, ensure_ascii=False)[:200])
         if result.get("task_id"):
             # 注意:这里**不能**再 set_param_state(cleaned)——它会用 user_override=False
             # 覆盖上面刚打好的"用户已手改"标记。只补登记引用即可。

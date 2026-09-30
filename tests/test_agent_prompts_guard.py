@@ -13,6 +13,7 @@ from __future__ import annotations
 import pytest
 
 from app.integrated_app.agent.guard import (
+    clamp_edit_params,
     clamp_generate_params,
     detect_leak,
     sanitize_data_item,
@@ -138,3 +139,52 @@ def test_detect_leak_clean_text():
 def test_sanitize_task_id():
     assert sanitize_task_id("abc<script>alert(1)</script>") == "abcscriptalert1script"
     assert sanitize_task_id("01ARZ3NDEKTSV4RRFFQ69G5FAV") == "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+
+
+# ── guard.clamp_edit_params（P1 edit_image）──────────────────
+
+
+def test_clamp_edit_requires_prompt():
+    with pytest.raises(ValueError, match="positive_prompt"):
+        clamp_edit_params({"task_id": "T1"})
+
+
+def test_clamp_edit_requires_reference_source():
+    """两个参考图来源都缺失 → 拒绝（否则 LLM 会凭空调用编辑）。"""
+    with pytest.raises(ValueError, match="task_id|reference_path"):
+        clamp_edit_params({"positive_prompt": "把背景换成雪地"})
+
+
+def test_clamp_edit_task_id_and_path_conflict():
+    """两个来源都给 → 以 task_id 为准并记录违规。"""
+    cleaned, violations = clamp_edit_params(
+        {"positive_prompt": "改成红色", "task_id": "T9", "reference_path": "outputs/a.png"}
+    )
+    assert cleaned["task_id"] == "T9"
+    assert "reference_path" not in cleaned
+    assert any("二选一" in v for v in violations)
+
+
+def test_clamp_edit_drops_width_height_and_unknown_keys():
+    """width/height 对编辑无意义（尺寸由参考图推导），白名单外键必须丢弃。"""
+    cleaned, violations = clamp_edit_params(
+        {
+            "positive_prompt": "改成红色",
+            "task_id": "T1",
+            "width": 1024,
+            "height": 1024,
+            "evil_cmd": "rm -rf",
+            "steps": 999,
+            "edit_resolution": 99999,
+        }
+    )
+    assert "width" not in cleaned and "height" not in cleaned
+    assert "evil_cmd" not in cleaned
+    assert cleaned["steps"] == 50
+    assert cleaned["edit_resolution"] == 1024
+    assert any("未知参数" in v for v in violations)
+
+
+def test_clamp_edit_sanitizes_task_id():
+    cleaned, _ = clamp_edit_params({"positive_prompt": "x", "task_id": "T1<x>\n"})
+    assert cleaned["task_id"] == "T1x"

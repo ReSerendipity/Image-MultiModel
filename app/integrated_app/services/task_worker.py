@@ -176,7 +176,11 @@ def make_worker_func(
                 if task.cancel_requested:
                     await engine.cancel()
                     raise asyncio.CancelledError("cancelled before start")
-                # 原生引擎单次推理，无 on_chunk_done（批量断点续跑由外层 task_queue 处理）
+                # 编辑路径（P1）：参考图非空 → 走 infer_edit（Qwen-Image 2.1 Edit）。
+                # 声明 edit 能力的引擎才走编辑分支；否则照旧 txt2img（保持历史行为）。
+                wants_edit = bool((gen.init_image or "").strip()) and "edit" in (ecfg.supported_features or [])
+                if wants_edit:
+                    return await engine.infer_edit(gen, on_progress=prog)
                 return await engine.infer_txt2img(gen, on_progress=prog)
 
             outputs = asyncio.run(run())

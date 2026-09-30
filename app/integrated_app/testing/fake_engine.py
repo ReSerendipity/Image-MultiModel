@@ -98,3 +98,11 @@ class FakeEngine:
             await asyncio.sleep(0.001)
         self._thumbnail_path = paths[0] if paths else ""
         return paths
+
+    async def infer_edit(
+        self,
+        config: GenerationConfig,
+        on_progress: ProgressCallback | None = None,
+    ) -> list[str]:
+        """假编辑：与 infer_txt2img 同语义（CI 用），供 edit 链路的测试复用。"""
+        return await self.infer_txt2img(config, on_progress=on_progress)

@@ -79,6 +79,50 @@ models:
       weight_version: auto-sha256:ebecd4fd3e55
       training_data_source: ''
       compatibility_matrix: {}
+    qwen_image_edit_native:
+      name: qwen_image_edit_native
+      display_name: Qwen-Image 2.1 Edit (原生)
+      display_name_en: Qwen-Image 2.1 Edit (Native)
+      backend: native
+      workflow_file: ''
+      parameter_schema: ''
+      comfy_source_dir: comfy_kernel
+      custom_nodes_dir: ''
+      seedvr2_source_dir: ''
+      text_encoder:
+        sub_dir: text_encoders
+        sub_path: Qwen-Image-2.1/qwen3vl_8b_int8_convrot.safetensors
+      unet:
+        sub_dir: unet
+        sub_path: Qwen-Image-2.1/qwen_image_2.1_int8_convrot.safetensors
+      vae:
+        sub_dir: vae
+        sub_path: Qwen-Image-2.1/qwen_image_2.1_vae_bf16.safetensors
+      model_id: ''
+      local_model_dir: ''
+      vram_gb: 11.0
+      ram_gb: 32.0
+      default_precision: int8
+      fallback_precision: int8
+      supported_features:
+      - edit
+      - reference_image
+      - reserved_vram
+      default_width: 1024
+      default_height: 1024
+      latent_channels: 64
+      latent_downscale: 16
+      image_formats:
+      - png
+      license: Apache-2.0
+      tags:
+      - edit
+      - native
+      - reference-image
+      weight_sha256: ''
+      weight_version: auto-sha256:ef5baf69
+      training_data_source: ''
+      compatibility_matrix: {}
 inference:
   default_steps: 10
   default_cfg: 1.0

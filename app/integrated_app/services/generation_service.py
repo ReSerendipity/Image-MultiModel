@@ -97,6 +97,10 @@ class GenerateRequest(BaseModel):
     # 参考图（可选，用于生成前 CLIP 安全检测；二选一，均可为空，为空则跳过图检）
     reference_image_path: str | None = None  # 服务端图片路径（须在 PathGuard 白名单内）
     reference_image_b64: str | None = None  # Base64 图片数据（含或不含 data: 前缀）
+    # 编辑模式（P1 Qwen-Image 2.1 Edit）：True 时参考图作为**编辑输入**（task mode=edit），
+    # False 时参考图仅用于安全图检（历史行为）。引擎须声明 supported_features 含 edit。
+    edit_mode: bool = False
+    edit_resolution: int = 1024  # 参考图缩放目标边长（0 = 按原图）
     # 幂等键（P3-10）：客户端重传同一 key 时复用首次任务，避免重复生成
     idempotency_key: str | None = None
 
@@ -315,7 +319,17 @@ class GenerationService:
                 logger.info("VRAM scheduler clamped batch_size %s -> %s", req.batch_size, clamped)
                 req.batch_size = clamped
 
-        gen_config = self._build_generation_config(req, engine_name, engine_cfg)
+        gen_config = self._build_generation_config(req, engine_name, engine_cfg, init_image=ref_image_path)
+
+        # 编辑模式守卫（P1）：参考图必须真正交给引擎，且引擎须声明 edit 能力，
+        # 否则请求会被静默降级成普通文生图（用户看到的是"没参考图"的结果）。
+        task_mode = "txt2img"
+        if req.edit_mode:
+            if "edit" not in (engine_cfg.supported_features or []):
+                raise HTTPException(422, detail=f"Engine '{engine_name}' does not support image editing")
+            if not ref_image_path:
+                raise HTTPException(422, detail="edit_mode requires reference_image_path or reference_image_b64")
+            task_mode = "edit"
 
         # P3-9 强制 LoRA 兼容性矩阵：不兼容的 LoRA 直接拒绝，避免无效推理占用 GPU
         self._validate_lora_compatibility(engine_cfg, gen_config.effective_lora_stack())
@@ -331,7 +345,7 @@ class GenerationService:
             task_id=task_id,
             engine=engine_name,
             config=gen_config.to_dict(),
-            mode="txt2img",
+            mode=task_mode,
             request_id=request_id,
         )
 
@@ -339,7 +353,7 @@ class GenerationService:
         self._history_db.create_task(
             task_id=task_id,
             engine=engine_name,
-            mode="txt2img",
+            mode=task_mode,
             prompt=req.positive_prompt,
             negative_prompt=req.negative_prompt,
             generation_config=gen_config.to_dict(),
@@ -492,6 +506,7 @@ class GenerationService:
         req: GenerateRequest,
         engine_name: str,
         engine_cfg: Any,
+        init_image: str | None = None,
     ) -> GenerationConfig:
         """把请求模型装配为引擎可消费的 GenerationConfig。"""
         return GenerationConfig(
@@ -530,6 +545,8 @@ class GenerationService:
             engine_name=engine_name,
             latent_channels=getattr(engine_cfg, "latent_channels", None),
             latent_downscale=getattr(engine_cfg, "latent_downscale", None),
+            init_image=init_image or "",
+            edit_resolution=max(0, int(req.edit_resolution or 0)),
         )
 
     def _validate_lora_compatibility(self, engine_cfg: Any, lora_stack: list[dict]) -> None:

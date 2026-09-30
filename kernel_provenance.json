@@ -3,9 +3,9 @@
   "path": "comfy_kernel",
   "origin": "https://github.com/comfyanonymous/ComfyUI.git",
   "remote_name": "origin",
-  "upstream_commit": "9883be7c5ec4082a090347d461bb0bd4131516f5",
-  "upstream_commit_date": "2026-08-17T09:53:58+08:00",
-  "upstream_version": "0.32.0",
-  "captured_at": "2026-09-25T01:04:17+00:00",
-  "note": "comfy_kernel/ 为独立嵌套 git 仓库且被 .gitignore 排除（禁区，不入本仓跟踪面）；本凭证为其来源快照，干净 checkout 下 build_release_metadata.py 以此回填 meta.artifacts.comfy_kernel.provenance。更新方式：在 comfy_kernel/ 内只读运行 `git rev-parse HEAD` 与 `git remote -v`，或直接运行 `python scripts/build_release_metadata.py --capture-provenance`。"
+  "upstream_commit": "6b747c0428c343e1417219641db93a4fb7cb69ae",
+  "upstream_commit_date": "2026-09-30T02:46:44+08:00",
+  "upstream_version": "0.38.0",
+  "captured_at": "2026-09-30T06:07:14+00:00",
+  "note": "comfy_kernel/ 为独立嵌套 git 仓库且被 .gitignore 排除（禁区，不入本仓跟踪面）；本凭证为其来源快照，干净 checkout 下 build_release_metadata.py 以此回填 meta.artifacts.comfy_kernel.provenance。更新方式：在 comfy_kernel/ 内只读运行 `git rev-parse HEAD` 与 `git remote -v`，或直接运行 `python scripts/build_release_metadata.py --capture-provenance`。2026-09-30 升级：v0.32.0(9883be7c)→v0.38.0(6b747c04)，启用 Qwen-Image 2.1 编辑（上游 6bfaacc6），本地分支 imm-kernel-v0.38.0，master 保留旧基线与升级策略文档。"
 }

@@ -203,7 +203,7 @@ class RecordingExecutor:
 
     async def __call__(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
         self.calls.append((name, args))
-        if name == "generate_image":
+        if name in ("generate_image", "edit_image"):
             return {"task_id": "TASK-CONFIRMED", "status": "queued"}
         return {"ok": True}
 
@@ -444,3 +444,80 @@ def test_user_override_visible_in_system_prompt():
     prompt = orch._system_prompt(session, "CONFIRM")
     assert "steps = 20" in prompt
     assert "用户已手改" in prompt
+
+
+# ── edit_image（P1 Qwen-Image 2.1 Edit）─────────────────────
+
+
+_EDIT_ARGS = {"positive_prompt": "把背景换成雪地", "task_id": "T-REF"}
+
+
+@pytest.mark.asyncio
+async def test_edit_image_gated_in_confirm_mode():
+    """CONFIRM 下 edit_image 同样只出参数卡片，绝不入队。"""
+    executor = RecordingExecutor()
+    orch = _make_orch(
+        [
+            _resp(tool_calls=[_tool_call("edit_image", _EDIT_ARGS)]),
+            _resp(content="请确认编辑参数。"),
+        ],
+        executor,
+    )
+    events = await orch.run_turn("s-edit", "把背景换成雪地", "CONFIRM")
+    types = [e.type for e in events]
+    assert "proposal" in types
+    assert "task_created" not in types
+    assert executor.generate_calls == []
+
+    proposal_evt = next(e for e in events if e.type == "proposal")
+    assert proposal_evt.data["tool"] == "edit_image"
+    assert proposal_evt.data["args"]["task_id"] == "T-REF"
+
+
+@pytest.mark.asyncio
+async def test_edit_image_proposal_approve_executes_edit_tool():
+    """确认后必须以 **edit_image** 工具名执行（参数白名单不同，不能错走 generate_image）。"""
+    executor = RecordingExecutor()
+    orch = _make_orch(
+        [
+            _resp(tool_calls=[_tool_call("edit_image", _EDIT_ARGS)]),
+            _resp(content="请确认。"),
+        ],
+        executor,
+    )
+    events = await orch.run_turn("s-edit2", "把背景换成雪地", "CONFIRM")
+    pid = next(e for e in events if e.type == "proposal").data["proposal_id"]
+
+    result = await orch.approve_proposal("s-edit2", pid, {"steps": 12})
+    assert result["task_id"] == "TASK-CONFIRMED"
+    assert executor.calls[0][0] == "edit_image"
+    assert executor.calls[0][1]["positive_prompt"] == "把背景换成雪地"
+    assert executor.calls[0][1]["steps"] == 12
+
+
+@pytest.mark.asyncio
+async def test_edit_image_auto_mode_executes_directly():
+    executor = RecordingExecutor()
+    orch = _make_orch(
+        [
+            _resp(tool_calls=[_tool_call("edit_image", _EDIT_ARGS)]),
+            _resp(content="已提交。"),
+        ],
+        executor,
+    )
+    events = await orch.run_turn("s-edit3", "把背景换成雪地", "AUTO")
+    assert [e.type for e in events] == ["tool_call", "task_created", "tool_result", "final"]
+    assert executor.calls[0][0] == "edit_image"
+
+
+@pytest.mark.asyncio
+async def test_edit_image_missing_reference_is_error_event():
+    """LLM 不给参考图来源 → validate 抛 ValueError → error 事件、零执行。"""
+    executor = RecordingExecutor()
+    orch = _make_orch(
+        [_resp(tool_calls=[_tool_call("edit_image", {"positive_prompt": "改成红色"})])],
+        executor,
+    )
+    events = await orch.run_turn("s-edit4", "改颜色", "AUTO")
+    assert events[0].type == "error"
+    assert executor.calls == []

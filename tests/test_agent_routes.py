@@ -239,3 +239,133 @@ def test_confirm_requires_csrf(client: TestClient):
     """新端点必须同样受 CSRF 中间件保护（不得成为绕过口）。"""
     resp = client.post("/api/agent/confirm", json={"session_id": "s1", "proposal_id": "p1"})
     assert resp.status_code == 403
+
+
+# ── edit_image（P1 Qwen-Image 2.1 Edit）─────────────────────
+
+
+class _FakeApp:
+    """替身 app.state：task_queue / history_db。"""
+
+    def __init__(self, queue_tasks, history_record=None) -> None:
+        self.state = type("S", (), {})()
+        self.state.task_queue = type("Q", (), {"list_tasks": staticmethod(lambda **k: queue_tasks)})()
+        self.state.history_db = type("H", (), {"get_task": staticmethod(lambda tid: history_record)})()
+
+
+class _FakeTask:
+    def __init__(self, task_id: str, result: list[str]) -> None:
+        self.task_id = task_id
+        self.result = result
+
+
+def test_resolve_edit_reference_from_queue_task():
+    from app.integrated_app.routes.agent_routes import _resolve_edit_reference
+
+    app = _FakeApp([_FakeTask("T-1", [r"outputs\z_image_turbo_native\20260930\a.png"])])
+    ref = _resolve_edit_reference(app, {"task_id": "T-1"})
+    assert ref.replace("\\", "/").endswith("z_image_turbo_native/20260930/a.png")
+
+
+def test_resolve_edit_reference_from_history_record():
+    from app.integrated_app.routes.agent_routes import _resolve_edit_reference
+
+    app = _FakeApp([], {"task_id": "T-2", "outputs": [{"path": "outputs/x/20260930/b.png", "output_type": "original"}]})
+    ref = _resolve_edit_reference(app, {"task_id": "T-2"})
+    assert ref.replace("\\", "/").endswith("x/20260930/b.png")
+
+
+def test_resolve_edit_reference_missing_task_raises():
+    import pytest
+
+    from app.integrated_app.routes.agent_routes import _resolve_edit_reference
+
+    app = _FakeApp([], None)
+    with pytest.raises(ValueError, match="没有可用的输出图片"):
+        _resolve_edit_reference(app, {"task_id": "NOPE"})
+
+
+def test_resolve_edit_reference_rejects_traversal():
+    """越权路径必须被拒（PathGuard 白名单外）。"""
+    import pytest
+
+    from app.integrated_app.routes.agent_routes import _resolve_edit_reference
+
+    app = _FakeApp([], None)
+    with pytest.raises(ValueError):
+        _resolve_edit_reference(app, {"reference_path": r"C:/Windows/system.ini"})
+    with pytest.raises(ValueError):
+        _resolve_edit_reference(app, {"reference_path": "../../../etc/passwd"})
+
+
+def test_execute_edit_image_wires_edit_mode_and_engine(monkeypatch: pytest.MonkeyPatch):
+    """edit_image 必须以 edit_mode=True + 编辑引擎 + 参考图提交，走队列化服务链。"""
+    from app.integrated_app.routes import agent_routes
+    from app.integrated_app.routes.agent_routes import _execute_edit_image
+
+    captured: dict[str, Any] = {}
+
+    class FakeResp:
+        task_id = "T-EDIT-1"
+
+    class FakeService:
+        def __init__(self, task_queue=None, history_db=None) -> None:
+            captured["queue"] = task_queue
+            captured["history"] = history_db
+
+        async def submit_txt2img(self, req):
+            captured["req"] = req
+            return FakeResp()
+
+    monkeypatch.setattr(agent_routes, "GenerationService", FakeService)
+    # 指向一个真实存在的参考图（项目内 outputs 里随便一个已生成的 png 不保证存在，
+    # 故临时造一个在 PathGuard 白名单目录内的文件）
+    from pathlib import Path as _P
+
+    from app.integrated_app.config import get_config
+
+    cfg = get_config()
+    outputs_root = _P(cfg.project_root) / cfg.output.base_dir
+    ref_rel = "_smoke_edit_ref.png"
+    ref_file = outputs_root / ref_rel
+    ref_file.parent.mkdir(parents=True, exist_ok=True)
+    ref_file.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    try:
+        app = _FakeApp([], None)
+        import asyncio
+
+        result = asyncio.run(
+            _execute_edit_image(
+                app,
+                app.state.task_queue,
+                app.state.history_db,
+                {"positive_prompt": "改成红色", "reference_path": f"outputs/{ref_rel}", "steps": 6},
+            )
+        )
+    finally:
+        ref_file.unlink(missing_ok=True)
+
+    assert result.get("task_id") == "T-EDIT-1", result
+    req = captured["req"]
+    assert req.edit_mode is True
+    assert req.engine_name == "qwen_image_edit_native"
+    assert req.reference_image_path.endswith(ref_rel)
+    assert req.seedvr2_enable is False and req.eses_enable is False
+    assert req.steps == 6
+
+
+def test_execute_edit_image_without_edit_engine_returns_error(monkeypatch: pytest.MonkeyPatch):
+    from app.integrated_app.routes import agent_routes
+    from app.integrated_app.routes.agent_routes import _execute_edit_image
+
+    class _Cfg:
+        project_root = "."
+
+    class _Cfg2:
+        output = type("O", (), {"base_dir": "outputs"})()
+        models = type("M", (), {"engines": {}})()
+
+    monkeypatch.setattr(agent_routes, "get_config", lambda: _Cfg2())
+    result = asyncio.run(_execute_edit_image(_FakeApp([], None), None, None, {"positive_prompt": "x", "task_id": "T"}))
+    assert "error" in result
+    _ = _Cfg
