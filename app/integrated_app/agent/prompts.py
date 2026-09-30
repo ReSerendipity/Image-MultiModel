@@ -13,17 +13,21 @@ L1 状态永远新鲜,"防多轮漂移的重注"天然实现。
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from .guard import sanitize_data_item
 
 # ── 模式常量(与 orchestrator.AgentMode 对应) ─────────────────
-MODE_AUTO = "AUTO"
-MODE_CONFIRM = "CONFIRM"
-MODE_MANUAL_ASSIST = "MANUAL_ASSIST"
+# 用 Literal 标注常量本身:这样路由的 `mode: ModeName = MODE_AUTO` 才能通过
+# mypy 的 ratchet 门禁(裸 str 常量赋给 Literal 字段会报 assignment 错)。
+ModeName = Literal["AUTO", "CONFIRM", "MANUAL_ASSIST"]
+
+MODE_AUTO: ModeName = "AUTO"
+MODE_CONFIRM: ModeName = "CONFIRM"
+MODE_MANUAL_ASSIST: ModeName = "MANUAL_ASSIST"
 
 # 合法模式全集(路由入参校验 / orchestrator 回落判定共用)
-MODES = frozenset({MODE_AUTO, MODE_CONFIRM, MODE_MANUAL_ASSIST})
+MODES: frozenset[str] = frozenset({MODE_AUTO, MODE_CONFIRM, MODE_MANUAL_ASSIST})
 
 _MODE_HINTS: dict[str, str] = {
     MODE_AUTO: "当前为全自动模式:用户消息即生成意图,直接选择参数并调用工具执行。",

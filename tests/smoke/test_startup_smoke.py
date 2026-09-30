@@ -26,6 +26,7 @@ pytestmark = [pytest.mark.smoke, pytest.mark.integration]
 
 @pytest.fixture()
 def client():
+    _prev_fake = os.environ.get("IMM_FAKE_ENGINE")
     os.environ["IMM_FAKE_ENGINE"] = "1"
     reset_metrics()
     reset_alert_engine()
@@ -34,7 +35,12 @@ def client():
         if token:
             c.headers["X-CSRF-Token"] = token
         yield c
-    os.environ.pop("IMM_FAKE_ENGINE", "")
+    # 回填原值而不是直接 pop：conftest 用 setdefault 提供全局默认假引擎，
+    # 直接 pop 会把这个默认一起丢掉，污染同进程（同 xdist worker）的后续测试文件。
+    if _prev_fake is None:
+        os.environ.pop("IMM_FAKE_ENGINE", "")
+    else:
+        os.environ["IMM_FAKE_ENGINE"] = _prev_fake
     reset_metrics()
     reset_alert_engine()
 
@@ -59,8 +65,13 @@ def test_app_boots_and_health_ok(client: TestClient) -> None:
 
 def test_fake_generation_completes(client: TestClient) -> None:
     payload = {
-        "positive_prompt": "startup smoke", "cfg": 1.0, "steps": 4,
-        "width": 256, "height": 256, "seed": 7, "batch_size": 1,
+        "positive_prompt": "startup smoke",
+        "cfg": 1.0,
+        "steps": 4,
+        "width": 256,
+        "height": 256,
+        "seed": 7,
+        "batch_size": 1,
         "engine_name": "z_image_turbo_native",
     }
     r = client.post("/api/generate", json=payload)
@@ -73,8 +84,13 @@ def test_fake_generation_completes(client: TestClient) -> None:
 def test_metrics_and_alerts_endpoints_serve(client: TestClient) -> None:
     # 先产生一次生成，确保指标有样本
     payload = {
-        "positive_prompt": "metrics smoke", "cfg": 1.0, "steps": 4,
-        "width": 256, "height": 256, "seed": 11, "batch_size": 1,
+        "positive_prompt": "metrics smoke",
+        "cfg": 1.0,
+        "steps": 4,
+        "width": 256,
+        "height": 256,
+        "seed": 11,
+        "batch_size": 1,
         "engine_name": "z_image_turbo_native",
     }
     tid = client.post("/api/generate", json=payload).json()["task_id"]
@@ -92,8 +108,13 @@ def test_metrics_and_alerts_endpoints_serve(client: TestClient) -> None:
 def test_graceful_shutdown_no_error(client: TestClient) -> None:
     # 触发一次生成后让 fixture 的上下文管理器执行 shutdown 路径
     payload = {
-        "positive_prompt": "shutdown smoke", "cfg": 1.0, "steps": 4,
-        "width": 256, "height": 256, "seed": 13, "batch_size": 1,
+        "positive_prompt": "shutdown smoke",
+        "cfg": 1.0,
+        "steps": 4,
+        "width": 256,
+        "height": 256,
+        "seed": 13,
+        "batch_size": 1,
         "engine_name": "z_image_turbo_native",
     }
     tid = client.post("/api/generate", json=payload).json()["task_id"]

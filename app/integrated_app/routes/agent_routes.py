@@ -32,6 +32,7 @@ from pydantic import BaseModel, Field
 
 from ..agent.llm_client import LLMClient, LLMError
 from ..agent.orchestrator import MODE_AUTO, AgentEvent, AgentOrchestrator, ProposalError
+from ..agent.prompts import ModeName
 from ..agent.session_store import InMemorySessionStore
 from ..config import get_project_root
 from ..engine_interface import get_registry
@@ -51,7 +52,7 @@ class AgentChatRequest(BaseModel):
 
     message: str = Field(min_length=1, max_length=8000)
     session_id: str | None = None
-    mode: Literal["AUTO", "CONFIRM", "MANUAL_ASSIST"] = MODE_AUTO
+    mode: ModeName = MODE_AUTO
 
 
 class AgentConfirmRequest(BaseModel):

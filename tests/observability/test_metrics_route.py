@@ -27,6 +27,7 @@ pytestmark = pytest.mark.integration
 
 @pytest.fixture()
 def client():
+    _prev_fake = os.environ.get("IMM_FAKE_ENGINE")
     os.environ["IMM_FAKE_ENGINE"] = "1"
     reset_metrics()
     reset_alert_engine()
@@ -36,7 +37,12 @@ def client():
         if token:
             c.headers["X-CSRF-Token"] = token
         yield c
-    os.environ.pop("IMM_FAKE_ENGINE", "")
+    # 回填原值而不是直接 pop：conftest 用 setdefault 提供全局默认假引擎，
+    # 直接 pop 会把这个默认一起丢掉，污染同进程（同 xdist worker）的后续测试文件。
+    if _prev_fake is None:
+        os.environ.pop("IMM_FAKE_ENGINE", "")
+    else:
+        os.environ["IMM_FAKE_ENGINE"] = _prev_fake
     reset_metrics()
     reset_alert_engine()
 
@@ -84,8 +90,13 @@ def test_generation_lifecycle_counters_increment(client: TestClient) -> None:
     m = get_metrics()
     before = m.generation_completed_total.total()
     payload = {
-        "positive_prompt": "metrics test", "cfg": 1.0, "steps": 4,
-        "width": 256, "height": 256, "seed": 3, "batch_size": 1,
+        "positive_prompt": "metrics test",
+        "cfg": 1.0,
+        "steps": 4,
+        "width": 256,
+        "height": 256,
+        "seed": 3,
+        "batch_size": 1,
         "engine_name": "z_image_turbo_native",
     }
     r = client.post("/api/generate", json=payload)
@@ -109,8 +120,13 @@ def test_submitted_accepted_rejected_counters(client: TestClient) -> None:
     sub_before = m.generation_submitted_total.total()
     acc_before = m.generation_accepted_total.total()
     payload = {
-        "positive_prompt": "ok", "cfg": 1.0, "steps": 4,
-        "width": 256, "height": 256, "seed": 9, "batch_size": 1,
+        "positive_prompt": "ok",
+        "cfg": 1.0,
+        "steps": 4,
+        "width": 256,
+        "height": 256,
+        "seed": 9,
+        "batch_size": 1,
         "engine_name": "z_image_turbo_native",
     }
     r = client.post("/api/generate", json=payload)
@@ -131,8 +147,13 @@ def test_http_metrics_recorded_with_normalized_path(client: TestClient) -> None:
 def test_path_normalization_avoids_high_cardinality(client: TestClient) -> None:
     # 访问带 task_id 的任务详情，路径应被归一化为 {id}
     payload = {
-        "positive_prompt": "norm", "cfg": 1.0, "steps": 4,
-        "width": 256, "height": 256, "seed": 1, "batch_size": 1,
+        "positive_prompt": "norm",
+        "cfg": 1.0,
+        "steps": 4,
+        "width": 256,
+        "height": 256,
+        "seed": 1,
+        "batch_size": 1,
         "engine_name": "z_image_turbo_native",
     }
     r = client.post("/api/generate", json=payload)

@@ -31,6 +31,7 @@ def fake_client():
     """启用假引擎的 TestClient（进程级环境变量，worker 运行期读取）。"""
     import os
 
+    _prev_fake = os.environ.get("IMM_FAKE_ENGINE")
     os.environ["IMM_FAKE_ENGINE"] = "1"
     with TestClient(create_app()) as c:
         # 取 CSRF token（CSRF 中间件默认开启）
@@ -39,7 +40,12 @@ def fake_client():
         if token:
             c.headers["X-CSRF-Token"] = token
         yield c
-    os.environ.pop("IMM_FAKE_ENGINE", "")
+    # 回填原值而不是直接 pop：conftest 用 setdefault 提供全局默认假引擎，
+    # 直接 pop 会把这个默认一起丢掉，污染同进程（同 xdist worker）的后续测试文件。
+    if _prev_fake is None:
+        os.environ.pop("IMM_FAKE_ENGINE", "")
+    else:
+        os.environ["IMM_FAKE_ENGINE"] = _prev_fake
 
 
 def _wait_terminal(client: TestClient, task_id: str, timeout_s: float = 10.0) -> dict:

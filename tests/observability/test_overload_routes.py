@@ -26,6 +26,7 @@ pytestmark = pytest.mark.integration
 
 @pytest.fixture()
 def client():
+    _prev_fake = os.environ.get("IMM_FAKE_ENGINE")
     os.environ["IMM_FAKE_ENGINE"] = "1"
     reset_metrics()
     reset_alert_engine()
@@ -34,15 +35,25 @@ def client():
         if token:
             c.headers["X-CSRF-Token"] = token
         yield c
-    os.environ.pop("IMM_FAKE_ENGINE", "")
+    # 回填原值而不是直接 pop：conftest 用 setdefault 提供全局默认假引擎，
+    # 直接 pop 会把这个默认一起丢掉，污染同进程（同 xdist worker）的后续测试文件。
+    if _prev_fake is None:
+        os.environ.pop("IMM_FAKE_ENGINE", "")
+    else:
+        os.environ["IMM_FAKE_ENGINE"] = _prev_fake
     reset_metrics()
     reset_alert_engine()
 
 
 def _payload(**kw):
     base = {
-        "positive_prompt": "overload", "cfg": 1.0, "steps": 4,
-        "width": 256, "height": 256, "seed": 5, "batch_size": 1,
+        "positive_prompt": "overload",
+        "cfg": 1.0,
+        "steps": 4,
+        "width": 256,
+        "height": 256,
+        "seed": 5,
+        "batch_size": 1,
         "engine_name": "z_image_turbo_native",
     }
     base.update(kw)
@@ -53,10 +64,15 @@ def test_95_rejected_with_retry_after(client: TestClient, monkeypatch) -> None:
     import app.integrated_app.services.generation_service as gr
 
     monkeypatch.setattr(
-        gr, "evaluate_overload",
+        gr,
+        "evaluate_overload",
         lambda fill, batch_size: OverloadDecision(
-            action="reject_429", status=429, reason="queue_95",
-            retry_after_s=10, tier=3, message="near full",
+            action="reject_429",
+            status=429,
+            reason="queue_95",
+            retry_after_s=10,
+            tier=3,
+            message="near full",
         ),
     )
     before = get_metrics().queue_rejected_total.value(reason="queue_95")
@@ -71,10 +87,15 @@ def test_queue_full_returns_503(client: TestClient, monkeypatch) -> None:
     import app.integrated_app.services.generation_service as gr
 
     monkeypatch.setattr(
-        gr, "evaluate_overload",
+        gr,
+        "evaluate_overload",
         lambda fill, batch_size: OverloadDecision(
-            action="reject_503", status=503, reason="queue_full",
-            retry_after_s=10, tier=4, message="queue full",
+            action="reject_503",
+            status=503,
+            reason="queue_full",
+            retry_after_s=10,
+            tier=4,
+            message="queue full",
         ),
     )
     before = get_metrics().queue_rejected_total.value(reason="queue_full")
@@ -88,10 +109,15 @@ def test_normal_water_proceeds(client: TestClient, monkeypatch) -> None:
     import app.integrated_app.services.generation_service as gr
 
     monkeypatch.setattr(
-        gr, "evaluate_overload",
+        gr,
+        "evaluate_overload",
         lambda fill, batch_size: OverloadDecision(
-            action="proceed", status=200, reason="ok",
-            retry_after_s=0, tier=0, message="ok",
+            action="proceed",
+            status=200,
+            reason="ok",
+            retry_after_s=0,
+            tier=0,
+            message="ok",
         ),
     )
     r = client.post("/api/generate", json=_payload())
@@ -99,6 +125,7 @@ def test_normal_water_proceeds(client: TestClient, monkeypatch) -> None:
     tid = r.json()["task_id"]
     # 等待真正入队并被处理
     import time
+
     deadline = time.time() + 10
     while time.time() < deadline:
         st = client.get(f"/api/tasks/{tid}").json().get("status")

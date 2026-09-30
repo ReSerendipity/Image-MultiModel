@@ -99,12 +99,23 @@ class TestEngineLoad:
         None ⇒ ``None.load()`` 报 ``'NoneType' object has no attribute 'load'``。
         修复后必须真正走到 ``status == "loaded"``。
 
-        ⚠️ 必须显式设定 ``IMM_FAKE_ENGINE``：``tests/test_chaos_engineering.py`` 的
-        finally 会 ``os.environ.pop("IMM_FAKE_ENGINE")``（不回填原值），单进程全量
-        跑时该变量在 chaos 之后就不再是 conftest 的默认值——那时本用例会去构建
-        真 NativeEngine 并在无 torch 环境 500。monkeypatch 保证本用例自洽且用完还原。
+        ⚠️ 必须隔离两处**跨用例残留的全局状态**，否则本用例在 CI（xdist 按文件分
+        worker）会假红（2026-09-30 CI run 36656528279 实测）：
+        1. ``IMM_FAKE_ENGINE`` —— 多个测试文件设完直接 ``pop``，worker 内跑过它们
+           之后变量就没了，于是这里会去构建真 NativeEngine；conftest 已加兜底夹具，
+           本用例再显式置一次以求自洽。
+        2. ``InMemoryEngineRegistry`` 是进程级单例 —— 同 worker 里先跑的
+           ``test_load_existing_engine`` 可能已经把**真实工厂/实例**注册进去，
+           本用例会直接复用它而绕过被测路径。故把 ``_factories``/``_instances``
+           临时替换成干净状态（monkeypatch 用完自动还原）。
         """
+        from app.integrated_app.engine_interface import get_registry
+
         monkeypatch.setenv("IMM_FAKE_ENGINE", "1")
+        registry = get_registry()
+        monkeypatch.setattr(registry, "_factories", {"z_image_turbo_native": None}, raising=False)
+        monkeypatch.setattr(registry, "_instances", {}, raising=False)
+
         r = client.post("/api/engine/load", json={"engine_name": "z_image_turbo_native"})
         assert r.status_code == 200, f"Got {r.status_code}: {r.text[:200]}"
         body = r.json()

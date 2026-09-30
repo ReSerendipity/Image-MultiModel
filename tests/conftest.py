@@ -116,6 +116,26 @@ def pytest_collection_modifyitems(config, items):
 
 # ── 反模式 #3 防护：消除测试间共享全局状态（对应测试体系评估 P2-8）────
 @pytest.fixture(autouse=True)
+def _restore_fake_engine_env():
+    """每个用例结束后把 IMM_FAKE_ENGINE 恢复到会话默认值。
+
+    根因（2026-09-30 CI run 36656528279 实测）：多个测试文件用
+    ``os.environ["IMM_FAKE_ENGINE"] = "1"`` 后 ``finally: os.environ.pop(...)``，
+    而本文件用 ``setdefault`` 提供全局默认 —— 直接 pop 会**把默认一起丢掉**。
+    xdist 按文件分 worker，某个 worker 里先跑完这些文件，后续文件（如
+    ``test_engine_routes.py``）就会去构建真 NativeEngine，在无 comfy/torch
+    的 CI 环境里直接失败：本地单文件跑绿、CI 整轮红。
+
+    这里做一次全局兜底：无论哪个用例怎么折腾这个变量，用例结束后都回到
+    会话默认值；用例内部仍可按需临时改动。修测试文件本身（回填原值）是
+    第一道防线，本夹具是第二道，二者互补。
+    """
+    default = os.environ.get("IMM_FAKE_ENGINE", "1")
+    yield
+    os.environ["IMM_FAKE_ENGINE"] = default
+
+
+@pytest.fixture(autouse=True)
 def _clear_dependency_overrides():
     """每个测试结束后重置 app.dependency_overrides，避免跨测试状态污染。
 
