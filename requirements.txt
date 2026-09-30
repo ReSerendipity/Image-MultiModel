@@ -80,3 +80,4 @@ pynvml>=11.5.0
 sentencepiece>=0.1.99
 transformers>=5.17.0
 accelerate>=1.15.0
+comfy-aimdo>=0.5.5

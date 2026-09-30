@@ -95,7 +95,10 @@ def main() -> int:
 
         print("[5] verify output files")
         ok = False
-        for p in task.get("result") or []:
+        # /api/tasks/{id} 返回 history_db 行结构:输出在 outputs[].path(无 result 键)
+        out_paths = [o.get("path", "") for o in task.get("outputs", []) if isinstance(o, dict)]
+        out_paths = out_paths or task.get("result") or []
+        for p in out_paths:
             rel = str(p).replace("\\", "/")
             idx = rel.find("outputs/")
             rel = rel[idx + 8 :] if idx >= 0 else rel
