@@ -212,6 +212,56 @@ models:
       weight_version: ''
       training_data_source: ''
       compatibility_matrix: {}
+    qwen_image_native:
+      name: qwen_image_native
+      display_name: Qwen-Image 2.1 (原生文生图)
+      display_name_en: Qwen-Image 2.1 (Native txt2img)
+      backend: native
+      workflow_file: ''
+      parameter_schema: ''
+      comfy_source_dir: comfy_kernel
+      custom_nodes_dir: ''
+      seedvr2_source_dir: ''
+      text_encoder:
+        sub_dir: text_encoders
+        sub_path: Qwen-Image-2.1/qwen3vl_8b_int8_convrot.safetensors
+      unet:
+        sub_dir: unet
+        # ⚠️ 权重阻断（离线 / 本地库缺失）：当前 pretrained_models 仅有 Qwen-Image 2.1 的
+        # 「编辑」基座 qwen_image_2.1_int8_convrot.safetensors，非 txt2img 基座。请在
+        # pretrained_models/unet/Qwen-Image-2.1/ 下补入 Qwen-Image 2.1 基座 txt2img
+        # checkpoint（预期名见下，实际名以下载为准）后，scripts/preflight_qwen_image.py
+        # 跑通即视为接入完成。接入流程沿用 Flux.2 Klein 实证法（junction→config→preflight）。
+        sub_path: Qwen-Image-2.1/qwen_image_2.1_base_int8_convrot.safetensors
+      vae:
+        sub_dir: vae
+        sub_path: Qwen-Image-2.1/qwen_image_2.1_vae_bf16.safetensors
+      model_id: ''
+      local_model_dir: ''
+      vram_gb: 11.0
+      ram_gb: 32.0
+      default_precision: int8
+      fallback_precision: int8
+      supported_features:
+      - txt2img
+      default_width: 1024
+      default_height: 1024
+      # Qwen-Image 2.1 latent（与 edit 同架构，edit 块实测）：64 通道 / 16 下采样
+      latent_channels: 64
+      latent_downscale: 16
+      # ⚠️ sampler / scheduler 待 preflight 实证后回填（沿用 Klein 流程：
+      # 先以 euler/simple 试，确认出图组合后下发此二字段到 config.yaml）
+      image_formats:
+      - png
+      license: Apache-2.0
+      tags:
+      - txt2img
+      - native
+      - qwen-image
+      weight_sha256: ''
+      weight_version: ''
+      training_data_source: ''
+      compatibility_matrix: {}
 inference:
   default_steps: 10
   default_cfg: 1.0
