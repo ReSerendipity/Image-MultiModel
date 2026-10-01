@@ -344,7 +344,7 @@ pre.cfg{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:9px;co
 .queue-item .qi-title{font-size:10.5px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .queue-item .qi-sub{font-size:9px;color:var(--ink-faint)}
 /* ===== 全屏大图查看器（Lightbox） ===== */
-.viewer{position:fixed;inset:0;background:rgba(12,10,8,.9);z-index:120;display:none;flex-direction:column}
+.viewer{position:fixed;inset:0;background:rgba(12,10,8,.9);z-index:9993;display:none;flex-direction:column}
 .viewer.show{display:flex}
 [data-theme="dark"] .viewer{background:rgba(0,0,0,.92)}
 .v-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;flex-shrink:0}
@@ -512,3 +512,11 @@ pre.cfg{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:9px;co
 .img-fit-lg{max-width:100%;max-height:300px;object-fit:contain}
 .img-fit-md{max-width:100%;max-height:220px;object-fit:contain;display:block;margin:0 auto}
 .img-fit-sm{max-width:100%;max-height:200px;object-fit:contain}
+/* ===== P2-10 应用内确认弹层（替代原生 confirm） ===== */
+.app-confirm{position:fixed;inset:0;z-index:10000;background:rgba(10,12,16,.55);display:flex;align-items:center;justify-content:center}
+.app-confirm-box{background:var(--surface);border:1px solid var(--seed-border);border-radius:var(--radius);max-width:400px;width:calc(100% - 40px);padding:20px 22px;box-shadow:0 10px 40px rgba(0,0,0,.18)}
+.app-confirm-title{font-size:14px;font-weight:700;color:var(--ink);margin-bottom:8px}
+.app-confirm-msg{font-size:12.5px;line-height:1.7;color:var(--ink-soft);white-space:pre-wrap}
+.app-confirm-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+/* ===== P2-11 卡片 title 与类型标签层级分离 ===== */
+.r-meta .r-type{display:inline-block;background:var(--accent-soft, rgba(232,130,42,.12));color:var(--accent);border-radius:4px;padding:1px 6px;margin-bottom:2px;font-size:9px;font-weight:600;align-self:flex-start}

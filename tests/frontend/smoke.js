@@ -39,7 +39,12 @@ const MOCK = {
     total: 1
   },
   '/api/tasks': { tasks: [], total: 0 },
-  '/api/presets': { presets: [] }
+  '/api/presets': { presets: [] },
+  '/api/engine/engines': {
+    engines: [{ name: 'z_image_turbo_native', display_name: 'Z-Image Turbo', state: 'loaded', ready: true }],
+    active_engine: 'z_image_turbo_native',
+    count: 1
+  }
 };
 
 function mockFetch(u, o) {
