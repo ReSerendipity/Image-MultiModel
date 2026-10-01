@@ -95,6 +95,35 @@
 > 当前离线下脚本以退出码 2（SKIPPED）清晰退出，不静默降级、不联网下载。
 > **待办**：下载 Qwen3-VL-8B 到本地并配置 `local_model_dir` 后重跑 preflight，闭环真实前向验证（M1 验收的最后一环）。
 
+> ⚠️ **上述「离线阻断」结论已于 2026-10-02 实证推翻（重要更正）**
+>
+> 结论：**本机早已具备 VLM 看图聊天的全部要素，不需要下载任何东西**；真正的问题不是「缺 HF 目录」，
+> 而是 **M1 的推理路径选错了** —— `infer_chat` 走了 `transformers.Qwen3VLForConditionalGeneration`，
+> 而这份权重是 **ComfyUI 专用 int8 convrot 量化格式**（每个线性层都带 `comfy_quant` 元数据），
+> transformers 根本**不认识**这种格式；即便手工拼出 HF 目录也加载不了。正确路径是**仓库自带的
+> `comfy_kernel`**，它天然认识 `comfy_quant`，而且**自带 config 与 tokenizer**（所以从不需要 HF 目录）。
+>
+> 实证清单（逐项在仓库/CI 环境核实，2026-10-02）：
+>
+> | 要素 | 位置 | 证据 |
+> |---|---|---|
+> | 权重（**含 lm_head 生成头 + visual 视觉塔**） | `pretrained_models/text_encoders/Qwen-Image-2.1/qwen3vl_8b_int8_convrot.safetensors`（9.35 GB） | safetensors 头 1258 keys：`lm_head.weight` / `lm_head.comfy_quant` / `model.visual.blocks.0.*` / `model.embed_tokens.*` |
+> | 模型类（**自带 generate**） | `comfy_kernel/comfy/text_encoders/qwen3vl.py:50` | `class Qwen3VL(BaseLlama, BaseQwen3, BaseGenerate, torch.nn.Module)`，`model_type="qwen3vl_8b"` |
+> | 生成实现 | `comfy_kernel/comfy/text_encoders/llama.py:1124` | `BaseGenerate.generate(embeds, max_length, temperature, top_k, top_p, …, deepstack_embeds, visual_pos_masks)` + `logits()` 优先用 `model.lm_head` |
+> | 架构 config | `comfy_kernel/comfy/text_encoders/llama.py:350` | `class Qwen3VL_8BConfig(Qwen3_8BConfig)` |
+> | tokenizer | `comfy_kernel/comfy/text_encoders/qwen25_tokenizer/` | `vocab.json` + `merges.txt` + `tokenizer_config.json`（`Qwen2Tokenizer` 可直接加载） |
+> | 图像预处理 | `comfy_kernel/comfy/text_encoders/qwen_vl.py:9` | `process_qwen2vl_images(patch_size=14, temporal_patch_size=2, merge_size=2)`：resize→归一化→patchify |
+> | 引擎已注册 | `config.yaml:172 models.engines.qwen3_vl_8b_native` | `role: vlm`、`comfy_source_dir: comfy_kernel`、text_encoder 指向该权重 |
+>
+> **旁证**：ComfyUI-aki-v3 侧 `ComfyUI/models/text_encoders/Qwen-Image-2.1/` 同样是**只有一个裸 safetensors**、
+> 没有 config.json —— 不是缺东西，而是 ComfyUI 生态本就靠 `comfy/text_encoders/` 里的
+> Python config（如 `Qwen3VL_8BConfig`）+ 内置 tokenizer 目录来加载，**从不需要 HF 目录**。
+>
+> **因此 M1 待办改为**：把 `native/vlm_engine.py` 的 `_chat_sync` 从 transformers 路径改为
+> `comfy_kernel` 路径（组装 `Qwen3VL` → `process_qwen2vl_images` → tokenizer 注入 `<|image_pad|>`(151655)
+> → `Qwen3VL.generate(deepstack_embeds=…, visual_pos_masks=…)`），再用 `scripts/preflight_qwen3vl.py`
+> 实跑闭环。`preflight_qwen3vl.py` 当前的 transformers 分支应当随之替换/重写。
+
 ### M2 · Agent 通道接收多模态输入（后端，≈1.5 天）
 - 目标：`POST /api/agent/chat` 请求体接受 `images: [{path|b64, role: "input"|"output"}]`，VLM 编码后作为条件前缀注入。
 - 落点：
