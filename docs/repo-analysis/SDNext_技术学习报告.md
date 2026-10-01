@@ -13,7 +13,7 @@
 - 桌面 + 移动双界面；~15 语言本地化。
 
 ## 三、核心能力（差异化亮点）
-- **SDNQ 量化引擎**：预量化或实时量化，最高 **4× VRAM 缩减**、质量/性能影响极小——直接对应本仓量化诉求。
+- **SDNQ 量化引擎**：预量化或实时量化，最高 **4× VRAM 缩减**、质量/性能影响极小——直接对应本仓量化诉求。（⚠️ 修正·T-02：SDNQ 非 SDNext 独有；复查报告实证 InvokeAI 同样提供 `sdnq-quantization.mdx` 文档。若本仓借鉴量化，优先参考 **InvokeAI**——同为 Apache-2.0 且已有 Z-Image 集成经验，而非 SDNext。）
 - **Balanced Offload**：CPU/GPU 显存动态平衡，小硬件跑大模型。
 - **Caption & Enhance**：内置 25+ LLM/VLM、OpenCLiP、WaifuDiffusion / DeepDanbooru Tagger。
 - 图像后处理全套色彩分级工具；自动模型下载（选模型即下、自动检测）。
@@ -29,7 +29,7 @@
 - Apache-2.0：代码自由借鉴；模型权重独立许可，按本仓 `THIRD_PARTY_NOTICES.md` 登记即可。
 
 ## 六、可借鉴点（P0/P1）
-- **P0**：SDNQ 量化 + Balanced Offload 的显存优化思路（直接补本仓量化主线）。
+- **P0**：SDNQ 量化 + Balanced Offload 的显存优化思路（直接补本仓量化主线）。（⚠️ 见 §三 SDNQ 归属修正：借量化优先参考 InvokeAI，非 SDNext 独有。）
 - **P1**：Caption / Tagger 内置（标注流程）、自动模型下载、多后端加速抽象层。
 
 ## 七、风险 / 不适用

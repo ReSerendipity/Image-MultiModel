@@ -9,7 +9,7 @@
 - **架构**：前端 Gradio（fork AI-Toolkit），后端 **Kohya sd-scripts**（见同仓竞品报告）。
 
 ## 二、技术栈（README + 仓库结构）
-- Python + Gradio；训练脚本直接调用 Kohya sd-scripts（仓库内嵌 `sd-scripts/` 子模块）。
+- Python + Gradio；训练后端为 Kohya sd-scripts。（⚠️ 集成方式待完整克隆确认·T-04：浅克隆 `--depth 1` 下 `sd-scripts/` 目录不可见；但 `app.py` 第 21 行 `import train_network`、第 456 行 shell 调用 `sd-scripts/flux_train_network.py`，表明以 submodule / vendored 方式引入 Kohya。README 未声明 submodule 细节，确切机制待完整克隆 `git submodule update --init` 后核实。）
 - Advanced 标签默认隐藏，暴露 **100% Kohya 功能**。
 
 ## 三、核心能力

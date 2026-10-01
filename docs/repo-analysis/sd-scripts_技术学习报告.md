@@ -20,7 +20,7 @@
 - **LUMINA 支持** → 与用户本地 ComfyUI **Lumina2** 模型对应！
 
 ## 四、与 Image_MultiModel 对标点（关键）
-- **Z-Image Base 已发布（2026-01-27）→ LoRA 训练底座具备**：sd-scripts 的 LoRA 训练范式可作本仓「Z-Image LoRA 训练」UI 后端参照（README 未列 Z-Image，但架构可扩展，须验证支持矩阵）。
+- **Z-Image Base 已发布（2026-01-27）→ LoRA 训练底座具备**：sd-scripts 的 LoRA 训练范式可作本仓 LoRA 训练 UI 后端参照（⚠️ **已确认不支持 Z-Image**：复查报告对 sd-scripts 全仓搜索 `Z.?Image / zimage` 0 匹配，非「待验证」。若本仓主线为 **Z-Image** LoRA 训练，sd-scripts 不能直接用，需评估 AI-Toolkit 或自行扩展；若做 **LUMINA/Lumina2** LoRA 则 sd-scripts 现成可用）。
 - **LUMINA 支持 ↔ 用户 Lumina2 模型**：若本仓做 Lumina LoRA，sd-scripts 是现成训练器。
 - **低显存训练（LLLite / Anima）↔ 本仓低显存诉求**。
 
@@ -33,7 +33,7 @@
 
 ## 七、风险 / 不适用
 - 纯脚本（无 UI）；本仓需自包 UI（**fluxgym 即 Kohya + Gradio UI 范例**，见同仓竞品报告）。
-- 须确认 Z-Image 是否在支持矩阵（README 未列，需实测）。
+- ⚠️ **已确认不支持 Z-Image**（复查报告全仓搜索 `Z.?Image / zimage` 0 匹配，非待验证）；若本仓主线为 Z-Image LoRA 训练，sd-scripts 不能作为后端，需评估 AI-Toolkit 或自行扩展。
 
 ## 八、参考文件（克隆内可复核）
 - `reference_repos/Image_MultiModel/sd-scripts/README.md`

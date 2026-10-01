@@ -10,7 +10,7 @@
 - **跨模态**：支持图像（Krea 2 / SD / Flux）、视频（**MiniMax H3** / Wan / LTX-2）、部分音频（ACE-Step）——因此**同时是 MiniMax-H3-lite 的直接竞品**。
 
 ## 二、技术栈（README + 仓库结构）
-- 后端：**C# / .NET 8（未来 .NET 10）**——与 Python 系 WebUI 技术栈迥异；前端 WebUI 监听端口 `7801`。
+- 后端：**C# / .NET 8（未来 .NET 10）**——与 Python 系 WebUI 技术栈迥异；前端 WebUI 监听端口 `7801`。（⚠️ 后端语言基于 README 声明；浅克隆 `--depth 1` 下 `src/` 内 `.cs` 文件计数返回空，未能实计数确认，待完整克隆核实——README 明确写 C#/.NET 8，暂信描述。）
 - 双界面：Generate 标签（新手友好）+ **Comfy Workflow 标签**（原生原始图，节点式无限制编辑）。
 
 ## 三、核心能力
@@ -37,5 +37,5 @@
 
 ## 八、参考文件（克隆内可复核）
 - `reference_repos/Image_MultiModel/SwarmUI/README.md`
-- `reference_repos/Image_MultiModel/SwarmUI/src/`（C# 后端）
+- `reference_repos/Image_MultiModel/SwarmUI/src/`（C# 后端；浅克隆未拉取完整源码，`.cs` 源文件计数待完整克隆确认）
 - `reference_repos/Image_MultiModel/SwarmUI/docs/`（官方文档）
