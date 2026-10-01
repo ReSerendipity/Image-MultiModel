@@ -106,6 +106,24 @@
 > **未做**：`vlm_context_fn` 的装配（由真实 VLM 实例注入）尚未接线——本仓离线、
 > Qwen3-VL 的 HF 模型目录未就位（同 M1 阻断），接线留待 M1 preflight 闭环后接上。
 
+> **装配接线已补（2026-10-01 收口，M2/M6 最后一环）**：注入式依赖此前只定义在编排层、
+> **没人注入**——服务起来后带图提问仍是 `unavailable`、M6 的 `edit_engine_fn` 恒为 None，
+> 功能等于没接。已在 `routes/agent_routes._get_orchestrator` 真正装配：
+> - ``edit_engine_fn=_first_edit_engine``：从 config 找首个 `supported_features` 含 edit 的引擎
+>   （本机实测解析为 ``qwen_image_edit_native``）。同一口径也替换了工具侧 ``edit_image``
+>   里原本自己遍历 config 的那段重复逻辑——**「谁有资格做编辑」只判一次**，
+>   避免两处各自遍历后一处说有、一处说没有。
+> - ``vlm_context_fn=_build_vlm_context_fn(_first_vlm_engine())``：**延迟加载**
+>   （9.35 GB 不在启动期压上显存）+ 每次编码前用 ``is_ready()`` 探测，
+>   被 ADR-0001 的 ``request_vlm_unload`` 卸掉后自动重新 load，不留僵尸实例；
+>   没配 VLM 引擎时压根不装配（宁报 `unavailable`，不伪造视觉描述）；
+>   load 失败（HF 目录未就位）冒泡成 `status=error`，不静默降级。
+> - 验收：`tests/integration/test_agent_vlm_wiring.py` **6 例全绿** —— 用 TestClient 起真实
+>   app + 真实 config 断言装配结果（``edit_engine_fn()`` 与独立重算的真解一致，
+>   不复读被测函数自证）；工具侧「是否仍各自遍历」用源码断言守住；卸载后重载 + load 失败不跑推理。
+> - 边界：本机离线、**未做**真实多模态前向端到端（带图请求的 `load()` 会因 HF 目录未就位
+>   走到 `status=error`，这正是设计口径），闭环仍需 M1 preflight。
+
 ### M3 · 内容过滤接入（后端安全，≈0.5 天）
 - 目标：VLM **输入图**与**输出文本**均走同款安全管线，与出图同口径，防绕过。
 - 落点：

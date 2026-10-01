@@ -32,7 +32,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, model_validator
 
 from ..agent.llm_client import LLMClient, LLMError
-from ..agent.orchestrator import MODE_AUTO, AgentOrchestrator, ProposalError
+from ..agent.orchestrator import MODE_AUTO, AgentOrchestrator, ProposalError, VisionContextFn
 from ..agent.prompts import ModeName
 from ..agent.session_store import InMemorySessionStore, SqliteSessionStore, default_session_db_path
 from ..config import get_config, get_project_root
@@ -270,12 +270,8 @@ async def _execute_edit_image(
     args: dict[str, Any],
 ) -> dict[str, Any]:
     """``edit_image`` 工具执行：参考图解析 → 编辑模式入队（走 GenerationService 队列化链路）。"""
-    cfg = get_config()
-    edit_engine = None
-    for name, ecfg in cfg.models.engines.items():
-        if "edit" in (ecfg.supported_features or []):
-            edit_engine = name
-            break
+    # 与 M6 编辑指令桥接共用同一口径（谁有资格做编辑只判一次），避免两处各自遍历后判定漂移
+    edit_engine = _first_edit_engine()
     if edit_engine is None:
         return {"error": "当前配置没有支持编辑的引擎（需要 supported_features 含 edit）"}
 
@@ -310,6 +306,80 @@ def _build_session_store() -> InMemorySessionStore:
         return InMemorySessionStore()
 
 
+def _first_edit_engine() -> str | None:
+    """首个 ``supported_features`` 含 ``edit`` 的引擎名（无则 None）。
+
+    这是「谁有资格做编辑」的**唯一口径**：Agent 工具侧 edit_image 与 M6 编辑指令桥接
+    共用它，避免两处各自遍历 config 后判定漂移（一处算有、一处算没有 = 静默不一致）。
+    """
+    cfg = get_config()
+    for name, ecfg in cfg.models.engines.items():
+        if "edit" in (ecfg.supported_features or []):
+            return name
+    return None
+
+
+def _first_vlm_engine() -> str | None:
+    """首个 ``role == 'vlm'`` 的引擎名（无则 None）。"""
+    cfg = get_config()
+    for name, ecfg in cfg.models.engines.items():
+        if getattr(ecfg, "role", "") == "vlm":
+            return name
+    return None
+
+
+def _build_vlm_context_fn(engine_name: str | None) -> VisionContextFn | None:
+    """把 VLM 引擎接成编排层的视觉上下文编码器（懒加载 + 卸载后重载）。
+
+    为什么不在装配期直接 load：VLM 权重 9.35 GB，启动就把一大坨权重压上显存会挤掉
+    文生图预算；真正的策略是**首次带图请求才加载**，且 ADR-0001 空闲/请求级卸载
+    （``request_vlm_unload``）会把它卸掉——故每次编码前用 ``is_ready()`` 探测，
+    被卸过就重新 load，不会留下一个"看着还在、实际已废"的僵尸实例。
+
+    返回 ``None`` 表示没配 VLM 引擎 —— 编排层会如实上报 ``unavailable``，不伪造描述。
+    """
+    if not engine_name:
+        return None
+    holder: dict[str, Any] = {"engine": None}
+
+    async def _encode(user_text: str, images: list[str]) -> str:
+        engine = holder["engine"]
+        if engine is None:
+            engine = _create_vlm_engine(engine_name)
+            holder["engine"] = engine
+        if not engine.is_ready():
+            # 严格离线：HF 模型目录未就位时 load() 抛清晰错误，由编排层转 status=error
+            await engine.load()
+        return await engine.infer_chat(user_text, list(images))
+
+    return _encode
+
+
+def _create_vlm_engine(engine_name: str) -> Any:
+    """优先走 registry 的工厂（config 已含 role），registry 未初始化时回退直构 VlmEngine。"""
+    from ..model_registry import get_model_registry
+    from ..native.vlm_engine import VlmEngine
+
+    registry = get_model_registry()
+    meta = registry.get_engine_config(engine_name) or {}
+    if meta:
+        return registry.create_engine_instance(
+            engine_name,
+            meta.get("display_name", ""),
+            meta.get("display_name_en", ""),
+            meta.get("backend", "native"),
+            meta.get("config", {}),
+        )
+    # 兜底：单测/未走 init_from_config 的路径下也能拿到同款引擎
+    ecfg = get_config().models.engines[engine_name]
+    return VlmEngine(
+        name=engine_name,
+        display_name=ecfg.display_name,
+        display_name_en=ecfg.display_name_en,
+        config=ecfg.model_dump(),
+    )
+
+
 def _get_orchestrator(request: Request) -> AgentOrchestrator:
     """懒创建 orchestrator(缓存于 app.state,测试可预注入替身)。"""
     existing = getattr(request.app.state, "agent_orchestrator", None)
@@ -329,6 +399,10 @@ def _get_orchestrator(request: Request) -> AgentOrchestrator:
         engines=[DEFAULT_ENGINE],
         loras=loras,
         mode=MODE_AUTO,
+        # M2/M6 装配：这两个 fn 只在真正用到时才被调用（带图才有视觉上下文、
+        # 模型吐出编辑标记块才解析引擎），未配置则如实降级，不伪造能力。
+        vlm_context_fn=_build_vlm_context_fn(_first_vlm_engine()),
+        edit_engine_fn=_first_edit_engine,
     )
     request.app.state.agent_orchestrator = orchestrator
     return orchestrator
