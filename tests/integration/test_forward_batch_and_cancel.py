@@ -34,8 +34,10 @@ def _comfy_online() -> bool:
 def _free_vram() -> None:
     try:
         req = urllib.request.Request(
-            f"{COMFY_URL}/free", data=b'{"unload_models": true, "free_memory": true}',
-            headers={"Content-Type": "application/json"}, method="POST",
+            f"{COMFY_URL}/free",
+            data=b'{"unload_models": true, "free_memory": true}',
+            headers={"Content-Type": "application/json"},
+            method="POST",
         )
         urllib.request.urlopen(req, timeout=5)
         time.sleep(2)
@@ -50,7 +52,9 @@ def _free_vram_gb() -> float:
 
         out = subprocess.run(
             ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if out.returncode == 0 and out.stdout.strip():
             return float(out.stdout.strip().splitlines()[0]) / 1024
@@ -66,20 +70,36 @@ def _base_payload(engine: str = "z_image_turbo_native", **overrides) -> dict:
     p = {
         "positive_prompt": "一只橘猫坐在窗台上，午后阳光，胶片质感",
         "negative_prompt": "",
-        "cfg": 1.0, "steps": 8, "width": 1024, "height": 1024,
-        "seed": 42, "batch_size": 1,
-        "lora_1_name": "", "lora_1_strength": 1.0,
-        "lora_2_name": "", "lora_2_strength": 0.7,
-        "lora_3_name": "", "lora_3_strength": 0.5,
-        "lora_4_name": "", "lora_4_strength": 0.4,
-        "lora_5_name": "", "lora_5_strength": 0.3,
-        "lora_6_name": "", "lora_6_strength": 0.2,
-        "seedvr2_enable": False, "seedvr2_resolution": 2048,
-        "seedvr2_seed": -1, "seedvr2_color_correction": "lab",
-        "eses_enable": False, "eses_compare_axis": "horizontal",
-        "vram_enable": False, "vram_reserved_gb": 0.6,
-        "vram_mode": "auto", "vram_seed": -1,
-        "output_format": "png", "output_prefix": "{engine}",
+        "cfg": 1.0,
+        "steps": 8,
+        "width": 1024,
+        "height": 1024,
+        "seed": 42,
+        "batch_size": 1,
+        "lora_1_name": "",
+        "lora_1_strength": 1.0,
+        "lora_2_name": "",
+        "lora_2_strength": 0.7,
+        "lora_3_name": "",
+        "lora_3_strength": 0.5,
+        "lora_4_name": "",
+        "lora_4_strength": 0.4,
+        "lora_5_name": "",
+        "lora_5_strength": 0.3,
+        "lora_6_name": "",
+        "lora_6_strength": 0.2,
+        "seedvr2_enable": False,
+        "seedvr2_resolution": 2048,
+        "seedvr2_seed": -1,
+        "seedvr2_color_correction": "lab",
+        "eses_enable": False,
+        "eses_compare_axis": "horizontal",
+        "vram_enable": False,
+        "vram_reserved_gb": 0.6,
+        "vram_mode": "auto",
+        "vram_seed": -1,
+        "output_format": "png",
+        "output_prefix": "{engine}",
         "engine_name": engine,
     }
     p.update(overrides)
@@ -89,6 +109,11 @@ def _base_payload(engine: str = "z_image_turbo_native", **overrides) -> dict:
 @pytest.fixture(scope="module")
 def client():
     with TestClient(create_app()) as c:
+        # 与 test_fake_generation_flow.fake_client 对齐：CSRF 中间件默认开启，
+        # POST 前必须领 token（GET /api/health 响应头 X-CSRF-Token）。
+        token = c.get("/api/health").headers.get("X-CSRF-Token", "")
+        if token:
+            c.headers["X-CSRF-Token"] = token
         yield c
 
 
@@ -123,7 +148,14 @@ class TestCancelUnder5s:
         # 取消
         cancel_start = time.time()
         cr = client.post(f"/api/tasks/{tid}/cancel")
-        assert cr.status_code == 200
+        if cr.status_code == 404:
+            # 假引擎/快引擎下任务可能在 2s 内已完成并被移出队列 → cancel 404。
+            # 与下方「如果任务在 cancel 前完成了，也算通过」同意图：仅当任务
+            # 确已 completed（http 状态非 running）时才放行，否则仍失败。
+            d = client.get(f"/api/tasks/{tid}").json()
+            assert d.get("status") == "completed", f"cancel 404 但任务未完成: {d.get('status')} / {cr.text[:120]}"
+        else:
+            assert cr.status_code == 200
 
         # 等待任务变为 cancelled
         deadline = time.time() + 30
@@ -135,9 +167,7 @@ class TestCancelUnder5s:
             time.sleep(1)
 
         cancel_elapsed = time.time() - cancel_start
-        assert d["status"] in ("cancelled", "completed"), (
-            f"Expected cancelled/completed, got {d.get('status')}"
-        )
+        assert d["status"] in ("cancelled", "completed"), f"Expected cancelled/completed, got {d.get('status')}"
         # 如果任务在 cancel 前完成了，也算通过（但 cancel 请求本身应 <5s）
         assert cancel_elapsed < 30, f"Cancel took {cancel_elapsed}s, expected <30s"
 
@@ -240,9 +270,7 @@ class TestBatchGenerate:
                 if d.get("status") in ("completed", "failed", "cancelled"):
                     break
                 time.sleep(3)
-            assert d.get("status") == "completed", (
-                f"Task {tid} status: {d.get('status')}, error: {d.get('error')}"
-            )
+            assert d.get("status") == "completed", f"Task {tid} status: {d.get('status')}, error: {d.get('error')}"
 
         # 查询批量进度
         batch_status = client.get(f"/api/tasks/batch/{data['batch_id']}").json()
