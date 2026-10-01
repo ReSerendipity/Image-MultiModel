@@ -289,10 +289,11 @@
 
   /* ============ 样式 / DOM 原语 ============ */
   var STYLE = [
-    '#agent-fab{position:fixed;right:22px;bottom:22px;z-index:9990;width:52px;height:52px;',
-    'border-radius:50%;border:none;background:#5e7d5a;color:#fff;font-size:22px;cursor:pointer;',
-    'box-shadow:0 4px 14px rgba(0,0,0,.18)}',
-    '#agent-drawer{position:fixed;right:22px;bottom:86px;z-index:9991;width:380px;max-height:70vh;',
+    '#agent-fab{position:fixed;right:22px;bottom:86px;z-index:9990;width:52px;height:52px;',
+    'border-radius:50%;border:none;background:var(--seed-primary,#e8822a);color:#fff;font-size:22px;cursor:pointer;',
+    'box-shadow:0 4px 14px rgba(0,0,0,.18);transition:transform .15s ease}',
+    '#agent-fab:hover{transform:scale(1.06)}',
+    '#agent-drawer{position:fixed;right:22px;bottom:150px;z-index:9991;width:380px;max-height:70vh;',
     'display:none;flex-direction:column;background:#fff;border:1px solid rgba(0,0,0,.15);',
     'border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,.16);overflow:hidden}',
     '#agent-drawer.open{display:flex}',
@@ -308,7 +309,7 @@
     '@keyframes agent-blink{to{visibility:hidden}}',
     '#agent-form{display:flex;border-top:1px solid rgba(0,0,0,.12)}',
     '#agent-input{flex:1;border:none;padding:10px 12px;font-size:13px;outline:none}',
-    '#agent-send{border:none;background:#5e7d5a;color:#fff;padding:0 16px;cursor:pointer}',
+    '#agent-send{border:none;background:var(--seed-primary,#e8822a);color:#fff;padding:0 16px;cursor:pointer}',
     '#agent-mode{border:1px solid rgba(0,0,0,.15);border-radius:6px;font-size:12px;padding:2px 4px;background:#fff}',
     '.agent-card{border:1px solid #c9d6c6;background:#f7faf6;border-radius:8px;padding:8px 10px;margin:8px 0}',
     '.agent-card .ac-title{font-size:12px;font-weight:600;color:#3f5a3c;margin-bottom:6px}',
@@ -842,6 +843,7 @@
     var fab = el('button');
     fab.id = 'agent-fab';
     fab.type = 'button';
+    fab.setAttribute('aria-label', 'AI 对话生图');
     fab.textContent = '✦';
 
     var drawer = el('div');
