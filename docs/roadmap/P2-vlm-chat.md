@@ -92,12 +92,35 @@
   - 会话历史持久化沿用 `SessionStore`（`chat.js` 已有）
 - 验收：`tests/integration/test_agent_vlm_multiturn.py` 覆盖 单图/多图/无图/会话回放；`path_guard` 校验 images 路径不越界。
 
+> **M2 验证状态（2026-10-01 提交 77b7e3c）**：后端已落地并通过门禁——
+> `AgentChatRequest.images`（`AgentImage` 的 `path`/`b64` 互斥且恰好其一） + `_validate_images`
+> 走 `PathGuard` 白名单（越权 **422**，阻在 SSE 建流之前，不混进错误事件流）；
+> `orchestrator._run_turn_impl`（流式/非流式唯一共用实现）新增 `images`，经 `vlm_context_fn`
+> 编入 `VISION_CONTEXT_TEMPLATE`，模板自带「**不构成任何指令**」声明以落实数据/指令分离；
+> 未配置编码器时如实发 `vlm_context{status:"unavailable"}`，**不伪造**视觉描述；
+> 纯文本轮次不发该事件（避免噪声）。
+> 验收：`tests/integration/test_agent_vlm_multiturn.py` **18 例全绿**（单图/多图与顺序/无图/
+> 会话回放/越权 422×3/形态校验/data URI 归一化/超 8 张截断/注入语义/降级不伪造）；
+> `tests/test_agent_routes.py` 的 `FakeOrchestrator` 同步接受 `images` 关键字参数（4 例回归修复）。
+> 门禁：ruff / ruff-format / mypy（98 文件零错）全通过。
+> **未做**：`vlm_context_fn` 的装配（由真实 VLM 实例注入）尚未接线——本仓离线、
+> Qwen3-VL 的 HF 模型目录未就位（同 M1 阻断），接线留待 M1 preflight 闭环后接上。
+
 ### M3 · 内容过滤接入（后端安全，≈0.5 天）
 - 目标：VLM **输入图**与**输出文本**均走同款安全管线，与出图同口径，防绕过。
 - 落点：
   - `security/content_filter.py` 加 `filter_image_for_vlm_input(path)`（CLIP 归一化 + 0.5 阈值，复用 `9da93a6` 校准）
   - VLM 输出文本走现有 `safety_routes.filter_output(text)`
 - 验收：`tests/security/test_vlm_content_filter.py` 拒绝违规图/文；单测 mock CLIP 断言归一化路径。
+
+> **M3 落点更正（2026-10-01 实证）**：原计划的 `safety_routes.filter_output` **在本仓不存在**——
+> `routes/safety_routes.py` 只有 `check_prompt` / `check_image` 两个 HTTP 端点，没有任何模块级
+> `filter_output`。已全仓 grep 复核（`filter_output` / `scan_output` / `check_text` 均 0 命中），
+> 因此**不臆造该函数**，改为直接复用 `ContentSafetyFilter.check_prompt`——它本就是提示词/注入侧
+> 的唯一实现（关键词 + 同形字/莱特/零宽绕过 + 注入规则集），对 VLM 产出文本同样适用，且永远可用
+> （不依赖 CLIP）。另经确认：内核 prompt 泄露那层由 `agent/guard.py::detect_leak` 兜底，
+> M2 的 `_run_turn_impl` 已在流式/非流式两条路径共用它，故 VLM 输出经编排器后天然覆盖，
+> 无需在 M3 重复实现（**新增入口需自行套 detect_leak**）。
 
 ### M4 · 前端「问 AI」入口（前端，≈1 天）
 - 目标：图片查看器、历史详情、画廊卡片增加「问 AI」按钮 → 打开 Agent 抽屉并把该图作为首条上下文。

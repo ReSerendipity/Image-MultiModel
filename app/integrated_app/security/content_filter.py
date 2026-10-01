@@ -296,6 +296,48 @@ class ContentSafetyFilter:
         except Exception:  # noqa: BLE001 - stat 失败即不缓存，不影响检测
             return None
 
+    def _clip_image_score(self, image_path: str | Path) -> tuple[float | None, int, str]:
+        """执行 CLIP 图片打分（**出图与 VLM 输入共用的唯一打分口径**）。
+
+        Returns:
+            ``(max_similarity, matched_prompt_index, error)``。推理成功时 error 为空串，
+            max_similarity 为 softmax 后的最大相似度；失败（CLIP 未安装 / 推理异常）时
+            error 非空、相似度为 None、下标为 -1，由调用方套各自的降级策略。
+
+        把打分从 ``_check_image_uncached`` 抽出来是为了让 M3 的 VLM 输入过滤
+        (``check_image_for_vlm``) **复用同一份阈值与归一化计算**——否则两套代码各自
+        算一次余弦相似度，阈值 0.5 的校准结论（2026-09-30 实测干净图 0.219~0.384）
+        就会在两处漂移，出现「出图放行但看图拦截」的不一致。
+        """
+        try:
+            import torch
+            from PIL import Image
+
+            image = self._preprocess(Image.open(str(image_path))).unsqueeze(0).to(self._device)
+
+            import clip as clip_lib
+
+            text_tokens = clip_lib.tokenize(_UNSAFE_CLIP_PROMPTS).to(self._device)
+
+            with torch.no_grad():
+                image_features = self._model.encode_image(image)
+                text_features = self._model.encode_text(text_tokens)
+                # CLIP 标准用法:encode_* 返回未归一化特征,必须先 L2 归一化再做相似度。
+                # 否则 softmax 被文本范数支配(实测各 prompt 范数 11.1~12.6,"NSFW" 最大),
+                # 任何图片都会恒定命中某个 prompt(softmax≈1.0)→ 全量误拦。
+                # 2026-09-30 修复:归一化后干净图 max_sim≈0.25(实测),详见评估报告第五轮。
+                image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+                text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+                # 计算余弦相似度并 softmax
+                similarities = (100.0 * image_features @ text_features.T).softmax(dim=-1)
+                max_sim = similarities.max().item()
+                max_idx = similarities.argmax().item()
+
+            return float(max_sim), int(max_idx), ""
+        except Exception as e:
+            logger.error(f"图片安全检查失败: {e}")
+            return None, -1, str(e)
+
     def _check_image_uncached(self, image_path: str | Path) -> SafetyResult:
         """实际执行 CLIP 图片安全检测（无缓存层）。
 
@@ -331,59 +373,50 @@ class ContentSafetyFilter:
                 details=details,
             )
 
-        try:
-            import torch
-            from PIL import Image
-
-            image = self._preprocess(Image.open(str(image_path))).unsqueeze(0).to(self._device)
-
-            import clip as clip_lib
-
-            text_tokens = clip_lib.tokenize(_UNSAFE_CLIP_PROMPTS).to(self._device)
-
-            with torch.no_grad():
-                image_features = self._model.encode_image(image)
-                text_features = self._model.encode_text(text_tokens)
-                # CLIP 标准用法:encode_* 返回未归一化特征,必须先 L2 归一化再做相似度。
-                # 否则 softmax 被文本范数支配(实测各 prompt 范数 11.1~12.6,"NSFW" 最大),
-                # 任何图片都会恒定命中某个 prompt(softmax≈1.0)→ 全量误拦。
-                # 2026-09-30 修复:归一化后干净图 max_sim≈0.25(实测),详见评估报告第五轮。
-                image_features = image_features / image_features.norm(dim=-1, keepdim=True)
-                text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-                # 计算余弦相似度并 softmax
-                similarities = (100.0 * image_features @ text_features.T).softmax(dim=-1)
-                max_sim = similarities.max().item()
-                max_idx = similarities.argmax().item()
-
-            threshold = _CLIP_THRESHOLD
-            if max_sim > threshold:
-                return SafetyResult(
-                    is_safe=False,
-                    violation_type="content_warning",
-                    confidence=max_sim,
-                    details={
-                        "similarity": max_sim,
-                        "matched_prompt": _UNSAFE_CLIP_PROMPTS[max_idx],
-                        "threshold": threshold,
-                    },
-                )
-
-            return SafetyResult(
-                is_safe=True,
-                violation_type=None,
-                confidence=1.0 - max_sim,
-                details={"max_similarity": max_sim, "threshold": threshold},
-            )
-
-        except Exception as e:
-            logger.error(f"图片安全检查失败: {e}")
+        max_sim, max_idx, error = self._clip_image_score(image_path)
+        if error:
             # 失败时保守策略：拒绝
             return SafetyResult(
                 is_safe=False,
                 violation_type="check_error",
                 confidence=0.0,
-                details={"error": str(e)},
+                details={"error": error},
             )
+
+        threshold = _CLIP_THRESHOLD
+        # error 为空时 max_sim 必非 None（_clip_image_score 的约定），此处仅收窄类型
+        max_sim = float(max_sim)  # type: ignore[arg-type]
+        if max_sim > threshold:
+            return SafetyResult(
+                is_safe=False,
+                violation_type="content_warning",
+                confidence=max_sim,
+                details={
+                    "similarity": max_sim,
+                    "matched_prompt": _UNSAFE_CLIP_PROMPTS[max_idx],
+                    "threshold": threshold,
+                },
+            )
+
+        return SafetyResult(
+            is_safe=True,
+            violation_type=None,
+            confidence=1.0 - max_sim,
+            details={"max_similarity": max_sim, "threshold": threshold},
+        )
+
+    # ── VLM 多路复用（P2-vlm-chat M3）────────────────────────────
+    def check_image_for_vlm(self, image_path: str | Path, use_cache: bool = True) -> SafetyResult:
+        """VLM 输入图检查（与出图同口径，仅违规类型前缀区分）。
+
+        与 ``check_image`` 共享 ``_clip_image_score``（同一份 0.5 阈值校准），
+        但违规类型统一加 ``vlm_input_`` 前缀，便于上层把「看图通道拦下的」
+        与「生成结果拦下的」分开统计与提示。
+        """
+        result = self.check_image(image_path, use_cache=use_cache)
+        if result.violation_type and not result.violation_type.startswith("vlm_input_"):
+            result.violation_type = f"vlm_input_{result.violation_type}"
+        return result
 
     # ── 提示词安全检查 ──────────────────────────────────────────
     def check_prompt(self, prompt: str) -> SafetyResult:
@@ -489,4 +522,70 @@ def filter_image_generation(
         if not img_result.is_safe:
             return False, f"image_blocked:{img_result.violation_type}"
 
+    return True, "OK"
+
+
+# ── VLM 通道入口（P2-vlm-chat M3）────────────────────────────────
+
+
+def filter_image_for_vlm_input(
+    image_path: str | Path | None,
+    fail_closed_on_clip_missing: bool | None = None,
+) -> tuple[bool, str]:
+    """VLM（看图通道）输入图过滤（P2-vlm-chat M3）。
+
+    与出图通道同口径：复用同一份 CLIP 打分与 0.5 阈值（``_clip_image_score``），
+    仅违规类型带 ``vlm_input_`` 前缀以便在日志/统计里区分通道。
+
+    集成到 Agent 多模态入口（M2 的 ``routes/agent_routes._validate_images`` 之后）：
+    路径越权由 PathGuard 负责（M2 已拦），本函数只管**内容**是否违规。
+
+    Args:
+        image_path: 图片路径（已过 PathGuard，可为绝对路径或 data URI 以外的普通路径）。
+        fail_closed_on_clip_missing: CLIP 缺失时是否拦截（None=跟随单例当前配置）。
+
+    Returns:
+        (is_safe, reason): 通过=True/原因="OK"；拦截=False/原因=违规详情。
+    """
+    if not image_path:
+        return True, "OK"
+
+    cf = get_content_filter(fail_closed_on_clip_missing=fail_closed_on_clip_missing)
+    result = cf.check_image_for_vlm(image_path)
+    if not result.is_safe:
+        return False, f"vlm_input_blocked:{result.violation_type}"
+    return True, "OK"
+
+
+def filter_text_for_vlm_output(
+    text: str | None,
+    fail_closed_on_clip_missing: bool | None = None,
+) -> tuple[bool, str]:
+    """VLM 输出文本过滤（P2-vlm-chat M3）。
+
+    **口径更正**：原计划写的是「VLM 输出走 ``safety_routes.filter_output``」，
+    但本仓 ``routes/safety_routes.py`` 只有 ``check_prompt`` / ``check_image``
+    两个 HTTP 端点，**并不存在** ``filter_output``。本函数改为直接复用
+    ``ContentSafetyFilter.check_prompt``——它正是提示词/注入侧的唯一实现
+    （关键词 + 同形字/莱特/零宽绕过 + 注入规则集），对 VLM 生成文本同样适用。
+
+    泄露内核 prompt 的额外一层由 ``agent/guard.py::detect_leak`` 兜底
+    （M2 的 ``_run_turn_impl`` 已在流式与非流式两条路径上共用该检测，
+    故 VLM 输出经编排器后天然覆盖，无需在此重复实现）。
+
+    Args:
+        text: VLM 产出的描述文本。
+        fail_closed_on_clip_missing: 仅用于保持与出图通道一致的入参形状；
+            文本侧不依赖 CLIP，故不影响结果。
+
+    Returns:
+        (is_safe, reason): 通过=True/原因="OK"；拦截=False/原因=违规详情。
+    """
+    if not text:
+        return True, "OK"
+
+    cf = get_content_filter(fail_closed_on_clip_missing=fail_closed_on_clip_missing)
+    result = cf.check_prompt(text)
+    if not result.is_safe:
+        return False, f"vlm_output_blocked:{result.violation_type}"
     return True, "OK"
