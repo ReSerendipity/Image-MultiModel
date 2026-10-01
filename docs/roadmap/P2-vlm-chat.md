@@ -72,6 +72,18 @@
   - **卸载策略**：沿用 `ADR-0001-idle-unload-policy.md`；VLM 空闲 60s 主动 unload；生图/编辑请求触发时优先卸 VLM 保 T2I
 - 验收：`tests/native/test_vlm_engine.py` 覆盖 load/unload/权重单例复用/显存不重叠；`mypy app/integrated_app` 零错。
 
+> **M1 验证状态（2026-10-01 收口）**：后端脚手架已落地并通过门禁——
+> `config_models.py` 加 `role` 字段 + 校验器、`model_registry` 按 `role=="vlm"` 分发 `VlmEngine`、
+> `config.yaml` 注册 `qwen3_vl_8b_native`、`native/vlm_engine.py` 实现权重单例 + 空闲卸载；
+> `tests/native/test_vlm_engine.py` 6 例全绿、`mypy` 零错、完整性清单重算并 Ed25519 重签（CI 门禁 PASS）。
+> **离线阻断（真实多模态前向未实机验证）**：本仓严格离线，本地仅存在单个
+> `qwen3vl_8b_int8_convrot.safetensors`（无 `config.json` / tokenizer），Qwen3-VL 的 HF 模型目录未就位，
+> 故 `infer_chat` 的 `transformers.Qwen3VLForConditionalGeneration` 前向链路**暂无法本地跑通**。
+> 已新增 `scripts/preflight_qwen3vl.py` 作为实机验证脚本：当 `engines.qwen3_vl_8b_native.local_model_dir`
+> 指向含 `config.json` 的本地目录时，脚本会真加载权重 + processor + `model.generate` 并解码；
+> 当前离线下脚本以退出码 2（SKIPPED）清晰退出，不静默降级、不联网下载。
+> **待办**：下载 Qwen3-VL-8B 到本地并配置 `local_model_dir` 后重跑 preflight，闭环真实前向验证（M1 验收的最后一环）。
+
 ### M2 · Agent 通道接收多模态输入（后端，≈1.5 天）
 - 目标：`POST /api/agent/chat` 请求体接受 `images: [{path|b64, role: "input"|"output"}]`，VLM 编码后作为条件前缀注入。
 - 落点：
@@ -127,8 +139,11 @@
 **首次推理耗时目标**：512×512 输入图 + 200 字提问 ≤ 15s（预热后 5-8s）；超预算则回退 fp4 量化变体（M1 附条件）。
 
 ### 立项决策点（用户勾选后方可启动）
-- [ ] 是否启动 M1（VLM 引擎 + 显存策略）
-- [ ] 若启动，是否要求 M4-M5 前端 UI 与 M2-M3 后端同批发布
-- [ ] 是否包含 M6 编辑桥接（可延后到 M1-M5 稳定后）
+
+> **2026-10-01 用户裁定「全部都做」**：以下三项均勾选为「是」，M1 立即开工，M4-M5 前端与 M2-M3 后端同批纳入（按里程碑推进），M6 编辑桥接纳入范围（可延后到 M1-M5 稳定后）。
+
+- [x] 是否启动 M1（VLM 引擎 + 显存策略）
+- [x] 若启动，是否要求 M4-M5 前端 UI 与 M2-M3 后端同批发布
+- [x] 是否包含 M6 编辑桥接（可延后到 M1-M5 稳定后）
 
 以上任一决策为「是」即可开工；M1 完成前不合并 M2。

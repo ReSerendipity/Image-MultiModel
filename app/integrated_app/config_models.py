@@ -92,7 +92,20 @@ class EngineConfig(BaseModel):
     display_name: str = ""
     display_name_en: str = ""
     backend: str = "native"
+    # 引擎角色（P2-vlm-chat M1）："" 沿用历史行为（按 supported_features 判定）；
+    # "vlm" 触发 VlmEngine 看图聊天分支（model_registry 按 role 分发）；
+    # "t2i"/"edit" 为语义标注（当前仍由 supported_features 驱动原生引擎能力守卫）。
+    role: str = ""
     # ── native 引擎字段（backend == "native" 时使用，deprecated）──
+
+    @field_validator("role")
+    @classmethod
+    def _check_role(cls, v: str) -> str:
+        allowed = {"", "t2i", "edit", "vlm"}
+        if v not in allowed:
+            raise ValueError(f"EngineConfig.role 必须是 {allowed} 之一，收到: {v!r}")
+        return v
+
     workflow_file: str = ""
     parameter_schema: str = ""
     comfy_source_dir: str = ""

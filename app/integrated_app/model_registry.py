@@ -147,6 +147,19 @@ class ModelRegistry:
                 config=config or {},
             )
         elif backend == "native":
+            # P2-vlm-chat M1：role == "vlm" 走 VlmEngine 看图聊天分支；
+            # 其余沿用 NativeEngine（comfy_kernel 进程内推理）。
+            role = (config or {}).get("role", "") if isinstance(config, dict) else ""
+            if role == "vlm":
+                from .native.vlm_engine import VlmEngine
+
+                logger.info(f"Creating VLM engine: {engine_name}")
+                return VlmEngine(
+                    name=engine_name,
+                    display_name=display_name,
+                    display_name_en=display_name_en,
+                    config=config or {},
+                )
             from .native.engine import NativeEngine
 
             logger.info(f"Creating native engine: {engine_name}")

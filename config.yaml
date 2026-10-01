@@ -169,6 +169,49 @@ models:
       weight_version: ''
       training_data_source: ''
       compatibility_matrix: {}
+    qwen3_vl_8b_native:
+      name: qwen3_vl_8b_native
+      display_name: Qwen3-VL 8B (看图聊天)
+      display_name_en: Qwen3-VL 8B (VLM Chat)
+      backend: native
+      role: vlm
+      workflow_file: ''
+      parameter_schema: ''
+      comfy_source_dir: comfy_kernel
+      custom_nodes_dir: ''
+      seedvr2_source_dir: ''
+      text_encoder:
+        sub_dir: text_encoders
+        sub_path: Qwen-Image-2.1/qwen3vl_8b_int8_convrot.safetensors
+      unet:
+        sub_dir: unet
+        sub_path: ''
+      vae:
+        sub_dir: vae
+        sub_path: ''
+      model_id: Qwen/Qwen3-VL-8B
+      local_model_dir: ''
+      vram_gb: 11.0
+      ram_gb: 32.0
+      default_precision: int8
+      fallback_precision: int8
+      supported_features:
+      - vlm_chat
+      default_width: 1024
+      default_height: 1024
+      latent_channels: null
+      latent_downscale: null
+      image_formats:
+      - png
+      license: Apache-2.0
+      tags:
+      - vlm
+      - native
+      - multimodal
+      weight_sha256: ''
+      weight_version: ''
+      training_data_source: ''
+      compatibility_matrix: {}
 inference:
   default_steps: 10
   default_cfg: 1.0
