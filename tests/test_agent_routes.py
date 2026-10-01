@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, NamedTuple
 
 import pytest
 from fastapi.testclient import TestClient
@@ -24,25 +24,39 @@ from app.integrated_app.agent.orchestrator import AgentEvent, ProposalError
 from app.integrated_app.app_server import create_app
 
 
+class TurnCall(NamedTuple):
+    """一轮对话的入参快照（M2 起含 images）。
+
+    ``images`` 是路由层 PathGuard 校验通过后交给编排层的图片引用列表（裸 base64 已转 data URI）。
+    """
+
+    session_id: str | None
+    message: str
+    mode: str | None
+    images: list[str] | None = None
+
+
 class FakeOrchestrator:
     """替身:返回固定事件序列,记录入参。"""
 
     def __init__(self, events: list[AgentEvent], mode: str = "AUTO") -> None:
         self.events = events
         self.mode = mode
-        self.calls: list[tuple[str | None, str, str | None]] = []
+        self.calls: list[TurnCall] = []
         self.approvals: list[tuple[str, str, dict[str, Any] | None]] = []
         self.rejections: list[tuple[str, str]] = []
 
-    async def run_turn(self, session_id: str | None, message: str, mode: str | None = None) -> list[AgentEvent]:
-        self.calls.append((session_id, message, mode))
+    async def run_turn(
+        self, session_id: str | None, message: str, mode: str | None = None, images: list[str] | None = None
+    ) -> list[AgentEvent]:
+        self.calls.append(TurnCall(session_id, message, mode, images))
         return self.events
 
     async def run_turn_stream(
-        self, session_id: str | None, message: str, mode: str | None = None
+        self, session_id: str | None, message: str, mode: str | None = None, images: list[str] | None = None
     ) -> AsyncIterator[AgentEvent]:
         """SSE 路由走的是流式入口；替身按序产出同一批事件。"""
-        self.calls.append((session_id, message, mode))
+        self.calls.append(TurnCall(session_id, message, mode, images))
         for event in self.events:
             yield event
 
@@ -117,7 +131,7 @@ def test_chat_sse_full_flow_with_fake_orchestrator(client: TestClient):
     assert [e["type"] for e in events] == ["tool_call", "task_created", "tool_result", "final"]
     assert events[1]["task_id"] == "TASK-1"
     assert "[DONE]" in resp.text
-    assert fake.calls[0] == (None, "画一只猫", "AUTO")
+    assert fake.calls[0] == TurnCall(None, "画一只猫", "AUTO", [])
 
 
 def test_chat_real_assembly_llm_offline_yields_error_event(client: TestClient, monkeypatch: pytest.MonkeyPatch):
@@ -172,7 +186,7 @@ def test_chat_passes_mode_through(client: TestClient):
     fake = FakeOrchestrator([AgentEvent("final", {"text": "ok"})])
     client.app.state.agent_orchestrator = fake
     _csrf_post(client, "/api/agent/chat", {"message": "画猫", "session_id": "s1", "mode": "CONFIRM"})
-    assert fake.calls[0] == ("s1", "画猫", "CONFIRM")
+    assert fake.calls[0] == TurnCall("s1", "画猫", "CONFIRM", [])
 
 
 def test_chat_rejects_unknown_mode(client: TestClient):

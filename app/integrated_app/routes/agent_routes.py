@@ -11,6 +11,7 @@ routes/agent_routes.py — Agent 对话端点(SSE 流式)+ 真实 tool 执行器
 SSE 事件(data: {json}\n\n,终止 data: [DONE]):
 - tool_call / task_created / tool_result / proposal / final / error
   (事件定义见 agent.orchestrator.AgentEvent)
+- vlm_context (M2)：{{status, images}} — 多模态输入是否被编码为视觉上下文
 
 装配约束(评估报告第八章 A3 铁律):
 - tool 执行器只走 GenerationService / TaskQueue / registry(队列化),绝不复用 mcp_server 直调路径;
@@ -28,7 +29,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from ..agent.llm_client import LLMClient, LLMError
 from ..agent.orchestrator import MODE_AUTO, AgentOrchestrator, ProposalError
@@ -37,6 +38,7 @@ from ..agent.session_store import InMemorySessionStore, SqliteSessionStore, defa
 from ..config import get_config, get_project_root
 from ..engine_interface import get_registry
 from ..model_manager import ensure_model_status_sse_observer
+from ..security.path_guard import PathGuard, PathGuardError
 from ..services.generation_service import GenerateRequest, GenerationService
 from ..task_queue import TaskQueue
 
@@ -46,6 +48,26 @@ router = APIRouter(prefix="/api/agent", tags=["agent"])
 
 DEFAULT_ENGINE = "z_image_turbo_native"
 _MAX_POLLED_RESULT_PATHS = 8
+# M2 多模态输入：单轮附带图片上限（防请求体与显存被撑爆；视觉上下文通常只需几张参考图）
+_MAX_CHAT_IMAGES = 8
+
+
+class AgentImage(BaseModel):
+    """Agent 聊天附带的图片（P2-vlm-chat M2）。
+
+    ``path`` / ``b64`` 互斥且恰好其一；``role`` 仅作语义标识
+    （input = 用户提问所依据的输入图，output = 对话中已生成的成品图），不影响编码方式。
+    """
+
+    path: str | None = Field(default=None, max_length=1024)
+    b64: str | None = Field(default=None, max_length=8 * 1024 * 1024)
+    role: Literal["input", "output"] = "input"
+
+    @model_validator(mode="after")
+    def _check_source(self) -> AgentImage:
+        if bool(self.path) == bool(self.b64):
+            raise ValueError("AgentImage 的 path 与 b64 必须恰好提供其一")
+        return self
 
 
 class AgentChatRequest(BaseModel):
@@ -54,6 +76,49 @@ class AgentChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=8000)
     session_id: str | None = None
     mode: ModeName = MODE_AUTO
+    # M2：本轮附带的图片（input/output 语义）；缺省或空表示纯文本轮次
+    images: list[AgentImage] | None = None
+
+
+def _ensure_data_uri(raw: str) -> str:
+    """把裸 base64 规范为 data URI；已是完整 ``data:`` URI 则原样返回。
+
+    仅做形态规范，不做内容鉴别——图片内容安全由 ``security/content_filter`` 的
+    ``filter_image_for_vlm_input`` 负责（P2-vlm-chat M3）。
+    """
+    text = str(raw).strip()
+    if text.startswith("data:"):
+        return text
+    return f"data:image/png;base64,{text}"
+
+
+def _validate_images(images: list[AgentImage] | None) -> list[str]:
+    """校验并归一化本轮图片，返回可直接交给 VLM 的引用列表（绝对路径或 data URI）。
+
+    - 路径类必须落在 PathGuard 白名单内：防 ``../`` 穿越、防读取 outputs/ 之外的文件；
+    - base64 类原样规范为 data URI；
+    - 超过 ``_MAX_CHAT_IMAGES`` 张时截断。
+
+    Raises:
+        HTTPException: 422 — 路径越权被 PathGuard 拒绝。
+    """
+    if not images:
+        return []
+    refs: list[str] = []
+    cfg = get_config()
+    guard = PathGuard(cfg.security.allowed_base_dirs, cfg.project_root)
+    for item in images[:_MAX_CHAT_IMAGES]:
+        if item.b64:
+            refs.append(_ensure_data_uri(item.b64))
+            continue
+        raw = str(item.path or "").strip()
+        if not raw:
+            continue
+        try:
+            refs.append(str(guard.resolve(raw)))
+        except PathGuardError as exc:
+            raise HTTPException(422, detail=f"图片路径越权被拒绝: {exc}") from exc
+    return refs
 
 
 class AgentConfirmRequest(BaseModel):
@@ -290,12 +355,18 @@ async def agent_chat(req: AgentChatRequest, request: Request) -> StreamingRespon
     事件**边产边推**（``run_turn_stream`` 是 async generator）：LLM 的正文增量以
     ``delta`` 事件即时下发，首字延迟不再等于整轮耗时；工具调用/参数卡片/成图
     等事件同样即时可见。
+
+    M2 多模态：请求体可带 ``images``（路径已过 PathGuard 白名单，越权返回 422）。
+    图片会经 orchestrator 的视觉上下文通道编码后注入，并先发一条 ``vlm_context`` 事件
+    上报状态（ok / unavailable / error），前端据此决定是否展示「已附带图片」。
     """
+    # 路径校验放在建流之前：越权路径以 422 明确拒绝，而不是混进 SSE 错误流里
+    image_refs = _validate_images(req.images)
     orchestrator = _get_orchestrator(request)
 
     async def event_stream() -> AsyncIterator[str]:
         try:
-            async for event in orchestrator.run_turn_stream(req.session_id, req.message, req.mode):
+            async for event in orchestrator.run_turn_stream(req.session_id, req.message, req.mode, images=image_refs):
                 payload = {"type": event.type, **event.data}
                 yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
         except LLMError as exc:
