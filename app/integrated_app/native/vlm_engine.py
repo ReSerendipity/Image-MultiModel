@@ -22,14 +22,99 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from ..engine_interface import ProgressCallback
 
 logger = logging.getLogger(__name__)
+
+# ── M6 编辑指令桥接（VLM 自然语言 → 结构化 edit 请求） ─────────
+# VLM 输出是**自由文本**，「把背景换成雪天」这类修改建议无法直接喂给编辑引擎。
+# 故用定界标记让模型在**可执行的编辑指令**处显式包裹一段提示词，编排器再解析。
+# 设计口径（评估报告 9.2 数据/指令分离）：
+# - 只有模型**主动吐出标记块**才算编辑意图；纯聊天文本一律解析为 None，
+#   **绝不靠关键词猜**（猜出来的 prompt 会静默改掉用户的图）。
+# - 解析在后端完成，前端只拿到结构化 intent，不复用 VLM 原文当 prompt。
+EDIT_MARKER_START = "[[EDIT]]"
+EDIT_MARKER_END = "[[/EDIT]]"
+_EDIT_BLOCK_RE = re.compile(
+    re.escape(EDIT_MARKER_START) + r"(?P<prompt>.*?)" + re.escape(EDIT_MARKER_END),
+    re.DOTALL,
+)
+
+
+@dataclass(frozen=True)
+class EditIntent:
+    """从 VLM 输出解析出的可执行编辑指令。
+
+    Attributes:
+        prompt: 编辑正向提示词 → ``GenerateRequest.positive_prompt``（唯一会被真正执行的文本）。
+        source: 命中的原始输出片段，用于回显/审计（**不参与执行**）。
+    """
+
+    prompt: str
+    source: str = ""
+
+
+def parse_edit_intent(text: Any) -> EditIntent | None:
+    """解析 VLM 输出里的编辑意图块；未命中定界标记时返回 ``None``。
+
+    Args:
+        text: VLM 返回的整段文本（流式拼接后的最终文本）。
+
+    Returns:
+        标记块存在且内部提示词非空 → ``EditIntent``；
+        无标记块 / 块内为空 / 只有起始标记没有结束标记 → ``None``。
+
+    注意：**不做事前关键词猜测**——没标记就不是编辑指令，宁可前端不出按钮，
+    也不能把「这张图很好看」当 prompt 去改用户的图。
+    """
+    if not text:
+        return None
+    raw = str(text)
+    match = _EDIT_BLOCK_RE.search(raw)
+    if match is None:
+        return None
+    prompt = (match.group("prompt") or "").replace("\r\n", "\n").strip()
+    if not prompt:
+        logger.debug("[VLM] 编辑标记块为空，按无意图处理（不臆造 prompt）")
+        return None
+    return EditIntent(prompt=prompt, source=raw[max(0, match.start()) : match.end()])
+
+
+def strip_edit_block(text: Any) -> str:
+    """把编辑标记**符号**摘掉，但保留块内提示词。
+
+    为什么保留：标记块里装的就是「将要执行的编辑提示词」，用户点「执行编辑」之前
+    必须能看见它——把整块删掉等于让用户去点一个看不见的动作。仅 ``[[EDIT]]`` /
+    ``[[/EDIT]]`` 是机器协议，不该出现在聊天气泡里。
+    """
+    if not text:
+        return ""
+    out = _EDIT_BLOCK_RE.sub(lambda m: m.group("prompt") or "", str(text))
+    return re.sub(r"\n{3,}", "\n\n", out).strip()
+
+
+def build_edit_few_shot() -> str:
+    """喂给 VLM 的 few-shot 系统提示：让「可执行的图片修改」显式包裹标记块。
+
+    只教模型**何时**包裹、包裹什么，不做任何语义猜测；模型不吐标记时解析器安全返回 None。
+    """
+    return (
+        "【编辑指令格式】当用户想要**修改**已附带的图片（换背景/改颜色/去掉某个物体/重画某个区域等）时，"
+        "在回答中先写一句自然语言说明，再用下面这对标记把**给编辑引擎的正向提示词**包起来，"
+        f"形如：{EDIT_MARKER_START}把背景换成雪天，光线变成阴天{EDIT_MARKER_END}。\n"
+        "- 包在标记里的是**编辑提示词本身**（中文、具体、只描述这次要做到的画面），不要把用户原话整个抄进去。\n"
+        "- 只问不改、纯讨论、描述图片内容的，**不要**加标记块。\n"
+        "- 一次只能给一个编辑指令；需要多个改动时合并成一句。\n"
+        "- 若用户这次只是提问或闲聊，正常回答即可，绝不输出标记块。"
+    )
+
 
 # ── 权重单例缓存 ──────────────────────────────────────────────
 # key = 规范化后的 HF 模型目录；value = {model, processor, ref_count, last_used, timer}

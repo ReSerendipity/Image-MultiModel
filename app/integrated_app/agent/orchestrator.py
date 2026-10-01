@@ -23,6 +23,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
+from ..native.vlm_engine import parse_edit_intent, strip_edit_block
 from .guard import detect_leak
 from .prompts import (
     KERNEL_PROMPT,
@@ -54,6 +55,9 @@ VISION_CONTEXT_TEMPLATE = (
 )
 
 VisionContextFn = Callable[[str, list[str]], Awaitable[str]]
+# M6：编辑引擎解析器。返回 ``supported_features`` 含 edit 的引擎名，没有则 None。
+# 与 vlm_context_fn 同为**注入式**（不在编排层直接读全局 config），便于单测与未来换装配。
+EditEngineFn = Callable[[], str | None]
 
 # 需要"人闸"的模式:不直接执行 generate_image,先出参数卡片
 # 人闸生效的模式档位（AUTO 不闸）
@@ -69,7 +73,9 @@ class AgentEvent:
     type ∈ delta | tool_call | tool_result | task_created | proposal | final | error
     - ``delta``：流式正文增量（仅 ``run_turn_stream`` 产出）；
     - ``final``：``streamed=True`` 表示正文已通过 delta 逐字渲染过（前端勿重复追加）；
-      ``replace=True`` 表示此前流出的内容作废、请用本事件文本整体覆盖气泡。
+      ``replace=True`` 表示此前流出的内容作废、请用本事件文本整体覆盖气泡；
+      ``edit_intent``（M6，仅本轮带图且模型吐出编辑标记块时）携带
+      ``{prompt, source, reference_images, engine_name}``，前端据此挂「执行编辑」按钮。
     """
 
     type: str
@@ -96,6 +102,7 @@ class AgentOrchestrator:
         loras: list[str] | None = None,
         mode: str = MODE_AUTO,
         vlm_context_fn: VisionContextFn | None = None,
+        edit_engine_fn: EditEngineFn | None = None,
     ) -> None:
         self.llm = llm
         self.tool_executor = tool_executor
@@ -106,6 +113,8 @@ class AgentOrchestrator:
         # M2：可选的视觉上下文编码器（VLM）。None 表示不启用多模态编码；
         # 此时图片仍作为路径引用注入，但**不伪造**视觉描述（见 _vision_context）。
         self.vlm_context_fn = vlm_context_fn
+        # M6：编辑引擎解析器（None = 不启用「执行编辑」按钮的引擎解析）
+        self.edit_engine_fn = edit_engine_fn
 
     def _system_prompt(self, session: AgentSession, mode: str) -> str:
         return build_system_prompt(
@@ -334,12 +343,39 @@ class AgentOrchestrator:
         if detect_leak(final_text, [KERNEL_PROMPT[:40]]):
             final_text = REFUSAL_TEXT
             final_streamed = False  # 文本被整体替换，前端不能再按"已流式追加"处理
+        # M6 编辑指令桥接：本轮带图 + 模型吐出编辑标记块 → 结构化 intent 随 final 下推，
+        # 前端据此在气泡下挂「执行编辑」按钮。没有图片就没有参考图，不做无源编辑。
+        # ⚠️ 顺序：必须**先解析再定 payload**——解析命中时正文要把标记块摘掉，
+        # 而 payload 一旦建好再改 ``final_text`` 变量并不会回写已进字典的旧字符串（踩过）。
+        edit_intent: dict[str, Any] | None = None
+        if images:
+            intent = parse_edit_intent(final_text)
+            if intent is not None:
+                final_text = strip_edit_block(final_text)
+                edit_intent = {
+                    "prompt": intent.prompt,
+                    "source": intent.source,
+                    "reference_images": list(images),
+                    "engine_name": self._resolve_edit_engine(),
+                }
         self.store.append_assistant(session, final_text)
         payload: dict[str, Any] = {"text": final_text}
         if final_streamed:
             # 前端据此跳过重复追加（正文已通过 delta 逐字渲染过）
             payload["streamed"] = True
+        if edit_intent is not None:
+            payload["edit_intent"] = edit_intent
         yield AgentEvent("final", payload)
+
+    def _resolve_edit_engine(self) -> str | None:
+        """解析可执行的编辑引擎名（``supported_features`` 含 edit）。"""
+        if self.edit_engine_fn is None:
+            return None
+        try:
+            return self.edit_engine_fn()
+        except Exception as exc:  # noqa: BLE001 — 解析失败不应打断整轮回复
+            logger.warning("编辑引擎解析失败: %s", exc)
+            return None
 
     # ── 双模式:提案确认 / 否决(任务 5b) ─────────────────────
     def _take_proposal(self, session: AgentSession, proposal_id: str) -> dict[str, Any]:
