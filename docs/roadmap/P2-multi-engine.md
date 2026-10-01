@@ -63,8 +63,8 @@
 - [x] 实机（RTX 5070 Ti 12GB）出图成功 —— preflight 实测：UNet+TE+VAE 真加载，512²/4 步出图成功并存盘
       （`outputs/_preflight_flux2klein/klein_euler_simple.png`，照片级质量；采样含 offload 约 28~112s 视负载）；
 - [x] 采样参数实测确定：`sampler=euler` + `scheduler=simple`（euler/beta、euler/sgm_uniform 未及测，首组合即通过）；
-- [ ] 回归测试全绿（全量 pytest 门禁；2026-09-30 已过 mypy 定向 + 集成冒烟，全量见 REVISION_LOG）；
-- [ ] `GET /api/engines` 真实 API 出图冒烟（8288 端口端到端）。
+- [x] 回归测试全绿——2026-10-01 UI/UX 审计 P4 收尾后全量 pytest 跑通（**1235 passed / 7 skipped / 0 failed**，163s），mypy ratchet 定向 `app/integrated_app` 同时零错；本次改动涉及 `history_db.py` 已在 hash 监管内，重跑 generate→sign 两步后清单会签完整；
+- [x] `POST /api/engine/load` + `POST /api/generate` 真实 API 端到端冒烟——2026-10-01 于 8288 服务实测：`engine_name=flux2_klein_native` 先加载（18s，17GB 权重）后提交 `512×512 / steps=4 / cfg=1.0 / seed=42`，任务 `f806a6edb0af4277` 最终 **completed**，总耗时 243s（含 offload），产物 `outputs/flux2_klein_native/20261001/000001a0f70c9e35_0_AI.png`（335 KB 真实 PNG）；发现小遗留：`outputs.file_size/width/height/sha256` 入库时为 0/空（未 stat 磁盘），不阻塞验收，已归入下方开放问题。
 
 ## 实现记录（2026-09-30）
 
@@ -81,6 +81,7 @@
 
 ## 开放问题 / 阻塞项
 
+- ⚠ **产物元数据入库未 stat 磁盘（2026-10-01 端到端冒烟发现）**：任务 completed 后 `history_db.outputs` 行的 `file_size / width / height / sha256` 均为 0/空，磁盘上真实 PNG 存在（335 KB）；不阻塞出图与展示（前端直接读文件），但影响历史统计、去重与图库卡片预渲染。下一小步：`native/preview.py` 或 `generation_service` 写 outputs 前用 `PIL.Image.open + stat` 与 `hashlib.sha256` 补上；参考 `tests/integration/test_forward_path_api.py` 的产物断言。
 - ⚠️ widget 双处同步坑：aki-v3 工作流 JSON 的 `widgets_values`（positional）与 `widgets_values_named` 可能不同步，子图容器与内部还可能三处冲突 → **移植时一律读容器 positional 并实机验证**（详见蓝图「已知坑」）。
 - 多引擎 UI 过滤：README 已移除「全部 / Native」过滤项、简化为直接列引擎；新增引擎后需确认前端引擎列表渲染无回归。
 - 无独立阻塞，架构层已支持。

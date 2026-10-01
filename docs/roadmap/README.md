@@ -1,4 +1,4 @@
-# 能力演进路线图（P0/P1 已落地 · P2 后续可选）
+# 能力演进路线图（P0/P1 已落地 · P2 首项已验收 · VLM 待立项）
 
 > 本文档把 **Image MultiModel 的能力演进**按 P0/P1/P2 明确切片，使「后续可选演进」可追踪、可验收。
 > 注意：仓库内另有的 P0/P1/P2 分级（见 `docs/repo-analysis/测试体系评估报告_2026-09-04.md` §5）是**缺陷严重度**维度，与本能力路线无关，请勿混淆。
@@ -17,8 +17,8 @@
 |---|---|---|---|---|
 | P0 | 会话持久化 + 流式 delta + 冷启动提示 + 图片保护 + 多标签页 | ✅ 已落地 | — | `commit 891fdfe`、i18n×5、SSE 分片解码 |
 | P1 | 编辑引擎（Qwen-Image 2.1 Edit 原生接入） | ✅ 已落地 | `workflows/blueprints/README.md`（移植蓝图） | `commit 322ba54`、`native/edit_executor.py` |
-| P2 | **native 多引擎接入** | 🔲 后续可选（架构就绪 + 蓝图就绪，未立项验收） | [P2-multi-engine.md](./P2-multi-engine.md) | `engine_routes.py` backend 分发 + `native/` 模块齐全 |
-| P2 | **VLM 看图聊天** | 🔲 后续可选（空白，无设计/计划/代码） | [P2-vlm-chat.md](./P2-vlm-chat.md) | — |
+| P2 | **native 多引擎接入** | 🟢 **首项已验收**（Flux.2 Klein 9B fp8 端到端跑通） | [P2-multi-engine.md](./P2-multi-engine.md) | commit `f82457d` + 2026-10-01 端到端任务 `f806a6edb0af4277`（1235 pytest pass / mypy 0 err / 512² 243s 出图 335 KB） |
+| P2 | **VLM 看图聊天** | 🟡 待立项（权重选定 Qwen3-VL-8B int8_convrot，方案 A 复用 Agent 通道；实施清单已细化到 M1-M6 里程碑） | [P2-vlm-chat.md](./P2-vlm-chat.md) | 权重本机已挂载（编辑引擎 TE 实证可加载）；剩余为策略/端点/UI/内容过滤/回归 |
 
 ## 判定原则（P2 为何「可选」）
 
@@ -31,6 +31,9 @@
 ## 待办（文档层）
 
 - [ ] 任一 P2 升为「待办」时，将其文档状态由 🔲 改为 🟡 并填写验收证据。
+- [x] P2 多引擎首项（Flux.2 Klein 9B）已验收；后续候选引擎（Qwen_image_native / krea2_turbo_native 等）待触发条件满足时按 `P2-multi-engine.md` 步骤接入。
+- [x] P2 VLM 看图聊天立项：M1-M6 里程碑已写入 `P2-vlm-chat.md` 实施任务清单，等待用户在 M1/M4-M5/M6 决策点勾选后开工。
+- [x] 学习报告借鉴 38 项归口：见 [learning-report-tasks.md](./learning-report-tasks.md)，按主线耦合度分批消化（分组 ① 6 项可独立 PR 立即清完；领域 B/E/G 分别挂到 P2 各里程碑）。
 
 ## 关于 `MASTER_PLAN` 引用（澄清，非待办）
 
