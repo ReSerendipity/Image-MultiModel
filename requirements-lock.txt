@@ -72,7 +72,7 @@ six==1.17.0
 sortedcontainers==2.4.0
 soundfile==0.14.0
 soupsieve==2.9.2
-starlette==1.6.0
+starlette==1.7.0
 sympy==1.14.0
 torch==2.14.0
 torchaudio==2.11.0
@@ -83,7 +83,7 @@ typing-inspection==0.4.4
 typing_extensions==4.16.0
 tzdata==2026.4
 urllib3==2.8.0
-uvicorn==0.53.0
+uvicorn==0.54.0
 wcwidth==0.8.4
 websockets==17.1
 yarl==1.25.1
