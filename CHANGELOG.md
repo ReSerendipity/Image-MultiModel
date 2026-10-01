@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **桌面化分发（P1-3）**：Tauri v2 壳（`desktop/src-tauri`：单实例/托盘/崩溃自启/窗口状态记忆/隐藏控制台/增量更新器）；NSIS 安装器（`desktop/installer/setup.nsi`：分卷解压/运行中进程自动终止/卸载清理）；分层定案（`docs/桌面分发分层定案-20260910.md`）；增量应用包打包（`scripts/package_app.py`）；Release 分卷切片（`scripts/split_release_volumes.py`，900MB/卷 + SHA256SUMS 全覆）；版本单一来源闸门（`scripts/check_config_refs.py` 扩展，config.yaml 权威位一致性校验）。
 - **发布质量（P2）**：安装环境诊断（`scripts/diag_portable_verify.py`：cryptography→清单→验签→自检→enforce 五环节）；发布门禁五步（`scripts/release_gate.py`：构建→静态→测试→签名→发布物）；闭源编译评估（`docs/闭源编译评估-Cython-pyd-20260910.md`，含公开声明）。
 - **服务端支撑**：`app_server.run()` 支持 `--host/--port`（桌面壳传入空闲端口）。
+- **Flux.2 Klein 9B（fp8）原生引擎（2026-09-30 接入）**：`config.yaml → models.engines.flux2_klein_native`，`backend: native`；权重三件套（UNet 8.46GB + Qwen3-8B TE 8.07GB + Flux.2 VAE）以 junction 挂载到 `pretrained_models/`；实机 RTX 5070 Ti 12GB preflight 512²/4 步出图验证通过（含 offload 28~112s）。采样器与调度器不再硬编码 Z-Image 常量：`GenerationConfig` / `EngineConfig` 新增 `sampler`/`scheduler` 字段，`native/executor.py` 按引擎配置下发，空值回退至原 Z-Image 默认；`latent_channels: 128` 与 `latent_downscale: 16` 必须显式写入配置（实测 `model.latent_format` 为 None，缺省会误回退至 Z-Image 的 16/8）。接入前自检工具 `scripts/preflight_flux2_klein.py` 可作为后续新引擎的标准模板。
+- **能力演进 roadmap 入库（2026-09-30）**：`docs/roadmap/README.md` 将 P0/P1 已落地能力与 P2 后续可选项（多引擎、VLM 看图聊天）切片可追踪；`P2-multi-engine.md` 与 `P2-vlm-chat.md` 分别目标引擎与 VLM 权重选定、实施步骤与验收标准写入仓库。
 
 ### Security
 
@@ -39,8 +41,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **修复 mypy scripts 2 个预存类型错误（2026-09-11 收口）**：`fix_encoding_diag.py` 的 `line` 未初始化 None 索引；`post_deploy_smoke.py` 的 `get_json` 返回类型未收窄（`mypy scripts` → Success 35 文件）
 
+- **UI/UX 审计 P1 修复（2026-10-01）**：
+  - 历史中文搜索不可用——`history_db.py` FTS5 `unicode61` 不索引 CJK，含中文/长度 <3 的查询自动降级为 LIKE，并用 rowid 读取避免结果集与 tasks 行映射漂移；FTS5 MATCH 语法错误（引号/括号等）自动回退 LIKE，任何输入不再导致搜索页 500；新增 `tests/test_history_db_search.py` 锁定中文/英文/混合关键词与分页行为
+  - 分享按钮无反应——`app.js` 重写 `shareCurrent()`，先拉取当前任务产物与提示词，拼装为剪贴板文本后 `navigator.clipboard.writeText`，失败回退到 `prompt` 方案
+  - 无引擎就绪预检——`genBtn` 提交前自动 `POST /api/engine/preflight`，引擎未就绪时弹 appConfirm 提示先加载，避免默默入队后卡住
+
+- **UI/UX 审计 P2/P3 修复（2026-10-01）**：顶部栏悬停、设置下拉、关于面板社交链接 SVG 图标与版权文案、历史筛选新增「已取消」、状态 `st_*` 五语言全补齐 + `tr()` 未知键回退剥前缀、抽屉标题与提示全 i18n、EULA 隐私描述改为「提示词与生成结果均不出设备」、新增应用内 `appConfirm()` 模态全面替换原生 `window.confirm/alert`、手风琴序号 02→01、「模块」→「功能」、a11y aria-label/title 补齐（种子/默认随机骰、批量按钮、复选/单选、图库 chip、表格表头）、VRAM 状态口径统一为「可用 x.x / xx.x GB」、LoRA 滑杆选择器修正为栈内 `input[type=range]` 统一绑定、`histPurge` 无可清理项自动禁用、FAB 与 AI 对话发送按钮按品牌色统一
+
+- **UI/UX 审计 P4 修复（2026-10-01）**：
+  - 深水区 i18n 补齐——五语言字典新增约 130 键，覆盖设置面板（引擎与模型/运行/保留策略/配置 全部 label + option）、关于面板正文（副标题/描述/作者版本协议/6 项 feature/版权行）、批量面板（dropzone/每行 batch/16 倍数/网格笛卡尔积 hint/批次估算/任务队列 + 动态估算行内嵌 `<b>` 数字）、高级参数抽屉全部 label（基础/LoRA/SeedVR2/对比+显存预留/输出）、历史详情（任务详情/尺寸·seed/耗时·时间/重绘/预设/ZIP）、历史筛选下拉与 Purge/Clear、状态抽屉、预设面板、查看器标题、队列 popover 与状态行；动态文案全部走 `tr()`（包括分享/预设保存/删除确认的 appConfirm 消息与按钮）
+  - 右下角控件堆叠修复——`#agent-fab` 从 `bottom:22px` 上移至 `86px`，避开队列胶囊 `bottom:44~78px` 区间；`#agent-drawer` 同步上移至 `150px`；`.viewer` z-index 从 120 提至 9993（压过 FAB 9990，`app-confirm` 10000 仍最高），实测查看器打开时 FAB 被完整覆盖
+
 ### Changed
 
+- **完整性清单会签流程规范化（2026-10-01）**：`generate_integrity_manifest.py` 仅重生成 SHA256，未签名清单在 enforce 模式下仍会拒启；标准两步变为「generate → sign」，已写入 `docs/roadmap/P2-multi-engine.md` 与 `docs/GOTCHAS.md`。
 - **默认引擎** **`z_image_turbo_native`** **的** **`workflow_file`** **置空**：引擎推理由代码/native 构建，不再引用不存在的 `workflows/Z_image_turbo.json`；`workflows/` 收敛为用户自放 ComfyUI 工作流的参考目录（`.gitignore` 排除，启动时自动重建空目录）
 
 - **新增根级** **`AGENTS.md`**（家族自进化协议 v1.3）：补齐此前缺失的项目级 Agent 规范，并明确 `comfy_kernel/AGENTS.md` 为 vendored 上游 ComfyUI 文件、非本项目 AGENTS
