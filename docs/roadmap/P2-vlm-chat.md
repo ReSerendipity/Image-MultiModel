@@ -1,16 +1,20 @@
 # P2 — VLM 看图聊天（后续可选演进）
 
-> 状态：🟡 待办（VLM 权重已确认：**Qwen3-VL-8B int8_convrot**，本机已挂载且已验证可加载）
+> 状态：🟢 **M1 已验收、M2-M6 已落地**（2026-10-01）；唯一遗留 = 真实多模态前向需 Qwen3-VL 的 HF
+> 目录含 `config.json` 后由 `scripts/preflight_qwen3vl.py` 闭环（本仓离线，不联网下载）。
 > 关联：`docs/roadmap/README.md`（总索引）
-> 检索结论：全仓 `grep -rni "vlm\|看图\|image chat"` 仅命中 vendored 内核里的零星变量名
-> （`comfy_kernel/.../hidream_o1/conditioning.py`、`nodes_boogu.py` 的视觉塔），**非本平台功能**。
+> 立项检索结论（2026-10-01 当时）：全仓 `grep -rni "vlm\|看图\|image chat"` 仅命中 vendored 内核里的
+> 零星变量名（`comfy_kernel/.../hidream_o1/conditioning.py`、`nodes_boogu.py` 的视觉塔），**非本平台功能**。
+>
+> ⚠️ **下方「当前现状」为立项当时的快照，已过时**——保留用于追溯演进起点，请勿据此判断现状；
+> 现状请看「实施任务清单（M1-M6）」各段落的「验证状态」。
 
 ## 目标
 
 让用户在生图工作台内，对**已生成/已上传的图片**发起多轮视觉对话——描述内容、问修改建议、
 指令化编辑（"把背景换成雪天"），由本地 VLM 模型回答，并可桥接至编辑引擎执行。
 
-## 当前现状（如实记录）
+## 当前现状（⚠️ 立项当时 2026-10-01 的快照，已过时，勿据此判断现状）
 
 - 架构：现有 Agent 通道（`/api/agent/*` + LLM 决策）面向**文生图/编辑指令**，不消费图片输入；
 - 模型：本地仅部署文生图/编辑权重（Z-Image / Qwen-Image / Flux.2 Klein 等），**无 VLM 权重**；
@@ -25,6 +29,8 @@
 | B. 独立看图聊天服务 | 新建 `native/vlm_chat.py` + `/api/vlm/chat` 端点 + 前端对话面板 | 职责清晰、可独立迭代 | 重复造会话/流式/持久化轮子，与 Agent 通道割裂 |
 
 **倾向**：方案 A（复用现有 Agent + 多模态模型）优先，避免重复建设；仅在需要独立多模态能力时再拆 B。
+
+> **已裁定（2026-10-01 用户）**：采用**方案 A**，详见文末「立项决策点」。
 
 ## 已确认 VLM 权重（阻塞项已解除）
 
@@ -47,11 +53,16 @@
 
 ## 验收标准（升为「待办」后）
 
-- [ ] 选定 VLM 权重并在 `config.yaml` 注册，本地加载成功（显存预算内）；
-- [ ] 用户可对图片发起多轮对话，VLM 返回有效文本（SSE 流式）；
-- [ ] 对话内容经 `content_filter` 过滤（与出图同口径）；
-- [ ] 可选：对话中的编辑指令可桥接至编辑引擎执行并落盘；
-- [ ] 回归测试覆盖 VLM 加载/对话/过滤。
+- [x] 选定 VLM 权重并在 `config.yaml` 注册（M1，commit `2ed1534`）；⚠️ **本地加载未实跑**——
+      本机仅有单个 `qwen3vl_8b_int8_convrot.safetensors`，缺 HF 目录（`config.json`/tokenizer），
+      见 M1 验证状态与 `scripts/preflight_qwen3vl.py`（离线 SKIPPED，不静默降级）。
+- [x] 多轮对话**链路**已通（M2/M5）：`/api/agent/chat` 接受 `images`、SSE 流式、前端图气泡已落地；
+      ⚠️ VLM 前向应答未实跑（同上行阻塞，缺 HF 目录）。
+- [x] 对话内容经 `content_filter` 过滤（与出图同口径）（M3，commit `f6c75f3`）。
+- [x] 编辑指令可桥接至编辑引擎执行（M6，commit `acd4bf7`）：解析 → 一键 `POST /api/generate`
+      （`edit_mode=true` + `reference_image_path`）入队落盘。
+- [x] 回归测试覆盖过滤 / 多模态输入 / 编辑桥接 / 装配接线（M2/M3/M6 + `096ce57`）。
+- [ ] **唯一未闭环**：VLM 真实加载 + 多模态对话实机通过（需 HF 目录就位后跑 preflight 与端到端）。
 
 ## 启动条件（见总索引「判定原则」）
 
