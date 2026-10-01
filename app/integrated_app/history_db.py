@@ -694,7 +694,7 @@ class HistoryDB:
             # FTS5 查询语法错误（引号/括号等特殊字符进入 MATCH）→ LIKE 兜底，
             # 保证任何用户输入都不会让搜索页 500。
             logger.warning("FTS5 MATCH failed for q=%r, falling back to LIKE", q)
-            pattern = f"%{_escape_like(q)}%"
+            pattern = f"%{_escape_like(q or '')}%"
             like_where = [w for w in where if w != "tasks_fts MATCH ?"]
             like_where.append("(prompt LIKE ? ESCAPE '\\' OR tags LIKE ? ESCAPE '\\' OR task_id LIKE ? ESCAPE '\\')")
             like_params = params[:-1] + [pattern, pattern, pattern]
