@@ -12,11 +12,24 @@ import inspect
 import json
 import logging
 import os
+import re
 import sqlite3
 import threading
 import time
 from pathlib import Path
 from typing import Any
+
+# ── 搜索边界：FTS5 与 LIKE 的分工 ──────────────────────────────────
+# 实测（sqlite 3.49.1）：unicode61 分词器不产出 CJK token（中文/日文/韩文
+# 查询 MATCH 恒为 0）；而历史遗留库的索引为 trigram 语义，对 <3 字符查询
+# 无法子串命中。两类查询统一回落 LIKE 子串匹配，保证「输入即所得」。
+_CJK_SEARCH_RE = re.compile(r"[\u3000-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af\uff00-\uffef]")
+
+
+def _escape_like(s: str) -> str:
+    """转义 LIKE 通配符（配合 ``ESCAPE '\'`` 使用），使查询词按字面匹配。"""
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
 
 logger = logging.getLogger(__name__)
 
@@ -216,13 +229,14 @@ class HistoryDB:
         UNIQUE(engine_name, name)
     );
 
-    -- 全文检索索引
+    -- 全文检索索引（trigram：中文/英文子串均可命中；<3 字符查询由 list_tasks 走 LIKE）
     CREATE VIRTUAL TABLE IF NOT EXISTS tasks_fts USING fts5(
         task_id UNINDEXED,
         prompt,
         tags,
         content='tasks',
-        content_rowid='rowid'
+        content_rowid='rowid',
+        tokenize='trigram'
     );
 
     -- 容量日快照表（成本资源治理评估报告 §5-⑤：回答「磁盘还能撑多久 / 显卡够不够用」）
@@ -259,9 +273,13 @@ class HistoryDB:
     )
 
     FTS_TRIGGER_SQL = """
+    -- 注意：INSERT 必须显式携带 rowid（new.rowid），否则 UPDATE 触发器的
+    -- "删除旧行→插入新行"会让新行落到 rowid=max+1，与 tasks.rowid 错位，
+    -- list_tasks 的 JOIN tasks.rowid=tasks_fts.rowid 将匹配不到更新过的任务
+    -- （历史库由 v6 迁移重建修复）。
     CREATE TRIGGER IF NOT EXISTS tasks_ai AFTER INSERT ON tasks BEGIN
-        INSERT INTO tasks_fts(task_id, prompt, tags)
-        VALUES (new.task_id, new.prompt, new.tags);
+        INSERT INTO tasks_fts(rowid, task_id, prompt, tags)
+        VALUES (new.rowid, new.task_id, new.prompt, new.tags);
     END;
     CREATE TRIGGER IF NOT EXISTS tasks_ad AFTER DELETE ON tasks BEGIN
         INSERT INTO tasks_fts(tasks_fts, rowid, prompt, tags)
@@ -270,16 +288,17 @@ class HistoryDB:
     CREATE TRIGGER IF NOT EXISTS tasks_au AFTER UPDATE ON tasks BEGIN
         INSERT INTO tasks_fts(tasks_fts, rowid, prompt, tags)
         VALUES ('delete', old.rowid, old.prompt, old.tags);
-        INSERT INTO tasks_fts(task_id, prompt, tags)
-        VALUES (new.task_id, new.prompt, new.tags);
+        INSERT INTO tasks_fts(rowid, task_id, prompt, tags)
+        VALUES (new.rowid, new.task_id, new.prompt, new.tags);
     END;
     """
 
     # 数据库 schema 单调版本号（数据治理报告 P2-4）。
     # 1 = 基线 schema；2 = tasks 血缘增强列；3 = outputs.sha256 输出指纹；
-    # 4 = tasks.deleted_at 软删除；5 = tasks.request_id 提交→worker 关联键。
+    # 4 = tasks.deleted_at 软删除；5 = tasks.request_id 提交→worker 关联键；
+    # 6 = FTS 触发器显式 rowid + trigram 重建（修复更新后任务从搜索消失）。
     # 迁移步骤见 _migrations()；改基线 schema 或加列时必须同步 +1 并注册迁移。
-    SCHEMA_VERSION = 5
+    SCHEMA_VERSION = 6
 
     def __init__(self, db_path: str | Path) -> None:
         self.db_path = Path(db_path)
@@ -320,6 +339,7 @@ class HistoryDB:
             (3, self._migrate_v3_outputs_sha256),
             (4, self._migrate_v4_soft_delete),
             (5, self._migrate_v5_request_id),
+            (6, self._migrate_v6_fts_rowid_alignment),
         )
 
     def _migrate_v5_request_id(self, conn: sqlite3.Connection) -> None:
@@ -327,6 +347,30 @@ class HistoryDB:
         existing = {r[1] for r in conn.execute("PRAGMA table_info(tasks)").fetchall()}
         if "request_id" not in existing:
             conn.execute("ALTER TABLE tasks ADD COLUMN request_id TEXT DEFAULT ''")
+
+    def _migrate_v6_fts_rowid_alignment(self, conn: sqlite3.Connection) -> None:
+        """v6：FTS 触发器显式对齐 rowid + trigram 重建索引。
+
+        根因（2026-09 搜索修复）：旧触发器在 UPDATE 时先 DELETE 旧 FTS 行再
+        无 rowid INSERT，新行落到 ``rowid = max+1``，与 ``tasks.rowid`` 错位，
+        ``list_tasks`` 的 ``JOIN tasks.rowid=tasks_fts.rowid`` 失配 ——
+        更新过（如 completed）的任务从全文搜索中消失；且 unicode61 分词器
+        不索引中文。修复：显式 rowid 的新触发器 + 按 trigram 重建索引
+        （trigram 对 ≥3 字符的英文/中文子串均可命中；<3 字符由 LIKE 兜底）。
+        幂等可重入：drop → create → rebuild。
+        """
+        conn.executescript(
+            """
+            DROP TRIGGER IF EXISTS tasks_ai;
+            DROP TRIGGER IF EXISTS tasks_ad;
+            DROP TRIGGER IF EXISTS tasks_au;
+            DROP TABLE IF EXISTS tasks_fts;
+            """
+        )
+        conn.executescript(self.SCHEMA_SQL)
+        conn.executescript(self.FTS_TRIGGER_SQL)
+        conn.execute("INSERT INTO tasks_fts(tasks_fts) VALUES('rebuild')")
+        logger.info("FTS index rebuilt (trigram, rowid-aligned triggers) for schema v6")
 
     def _migrate_v4_soft_delete(self, conn: sqlite3.Connection) -> None:
         """v4：tasks 表补齐软删除列（回收站 / 防误删）。"""
@@ -583,6 +627,12 @@ class HistoryDB:
         """
         分页筛选任务列表。
 
+        搜索（``q``）语义：
+        - 含 CJK 或长度 < 3 的查询走 ``LIKE`` 子串匹配（FTS5 的 unicode61
+          分词器不索引中文/日文/韩文，短查询也无法子串命中）；
+        - 其余查询走 ``tasks_fts MATCH``，语法错误自动降级 LIKE，
+          任何用户输入都不会让搜索 500。
+
         Returns:
             (tasks, total_count)
         """
@@ -602,29 +652,59 @@ class HistoryDB:
             where.append("favorite=?")
             params.append(1 if favorite else 0)
         if q:
-            where.append("tasks_fts MATCH ?")
-            params.append(q)
+            q = q.strip()
+        if q:
+            if _CJK_SEARCH_RE.search(q) or len(q) < 3:
+                # FTS5 对 CJK 不可索引（unicode61 不产出中文 token），
+                # 对 <3 字符查询也无子串命中能力（trigram 语义）→ LIKE 子串。
+                pattern = f"%{_escape_like(q)}%"
+                where.append("(prompt LIKE ? ESCAPE '\\' OR tags LIKE ? ESCAPE '\\' OR task_id LIKE ? ESCAPE '\\')")
+                params.extend([pattern, pattern, pattern])
+            else:
+                where.append("tasks_fts MATCH ?")
+                params.append(q)
 
         where_clause = " AND ".join(where) if where else "1=1"
 
-        # 总数
-        if q:
-            count_sql = f"SELECT COUNT(*) FROM tasks JOIN tasks_fts ON tasks.rowid=tasks_fts.rowid WHERE {where_clause}"
-        else:
-            count_sql = f"SELECT COUNT(*) FROM tasks WHERE {where_clause}"
-        total = conn.execute(count_sql, params).fetchone()[0]
-
-        # 分页
-        offset = (page - 1) * page_size
-        if q:
-            sql = (
-                f"SELECT t.* FROM tasks t JOIN tasks_fts ON t.rowid=tasks_fts.rowid "
-                f"WHERE {where_clause} "
-                f"ORDER BY t.created_at DESC LIMIT ? OFFSET ?"
-            )
-        else:
-            sql = f"SELECT * FROM tasks WHERE {where_clause} ORDER BY created_at DESC LIMIT ? OFFSET ?"
-        rows = conn.execute(sql, params + [page_size, offset]).fetchall()
+        fts_used = "tasks_fts MATCH ?" in where
+        try:
+            if fts_used:
+                # FTS5 路径：JOIN tasks_fts 按索引命中
+                count_sql = (
+                    f"SELECT COUNT(*) FROM tasks JOIN tasks_fts ON tasks.rowid=tasks_fts.rowid WHERE {where_clause}"
+                )
+                total = conn.execute(count_sql, params).fetchone()[0]
+                offset = (page - 1) * page_size
+                sql = (
+                    "SELECT t.* FROM tasks t JOIN tasks_fts ON t.rowid=tasks_fts.rowid "
+                    f"WHERE {where_clause} "
+                    "ORDER BY t.created_at DESC LIMIT ? OFFSET ?"
+                )
+                rows = conn.execute(sql, params + [page_size, offset]).fetchall()
+            else:
+                # 常规 / LIKE 路径
+                count_sql = f"SELECT COUNT(*) FROM tasks WHERE {where_clause}"
+                total = conn.execute(count_sql, params).fetchone()[0]
+                offset = (page - 1) * page_size
+                sql = f"SELECT * FROM tasks WHERE {where_clause} ORDER BY created_at DESC LIMIT ? OFFSET ?"
+                rows = conn.execute(sql, params + [page_size, offset]).fetchall()
+        except sqlite3.OperationalError:
+            if not fts_used:
+                raise
+            # FTS5 查询语法错误（引号/括号等特殊字符进入 MATCH）→ LIKE 兜底，
+            # 保证任何用户输入都不会让搜索页 500。
+            logger.warning("FTS5 MATCH failed for q=%r, falling back to LIKE", q)
+            pattern = f"%{_escape_like(q)}%"
+            like_where = [w for w in where if w != "tasks_fts MATCH ?"]
+            like_where.append("(prompt LIKE ? ESCAPE '\\' OR tags LIKE ? ESCAPE '\\' OR task_id LIKE ? ESCAPE '\\')")
+            like_params = params[:-1] + [pattern, pattern, pattern]
+            like_clause = " AND ".join(like_where)
+            total = conn.execute(f"SELECT COUNT(*) FROM tasks WHERE {like_clause}", like_params).fetchone()[0]
+            offset = (page - 1) * page_size
+            rows = conn.execute(
+                f"SELECT * FROM tasks WHERE {like_clause} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                like_params + [page_size, offset],
+            ).fetchall()
         tasks = []
         for r in rows:
             t = dict(r)
