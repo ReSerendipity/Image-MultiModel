@@ -2,9 +2,9 @@
 
 ![Version](https://img.shields.io/badge/version-1.2.2-blue?style=for-the-badge) ![License](https://img.shields.io/badge/license-Apache2.0-green?style=for-the-badge) ![Python](https://img.shields.io/badge/python-3.10+-yellow?style=for-the-badge&logo=python&logoColor=white) ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?style=for-the-badge&logo=nvidia&logoColor=white) [![CI](https://github.com/ReSerendipity/Image_MultiModel/actions/workflows/ci.yml/badge.svg)](https://github.com/ReSerendipity/Image_MultiModel/actions) [![gitleaks](https://img.shields.io/badge/secret%20scan-gitleaks%20passing-0080FF?style=for-the-badge)](https://github.com/ReSerendipity/Image_MultiModel/actions/workflows/gitleaks.yml)
 
-**Image MultiModel — 多模型 AI 图像生成平台：基于进程内原生引擎，复用 ComfyUI 源码实现 Z-Image Turbo 推理的「单页 Web UI」**
+**Image MultiModel — 多模型 AI 图像生成平台：基于进程内原生引擎，复用 ComfyUI 源码接入 Z-Image Turbo / Qwen-Image 2.1 Edit / Flux.2 Klein 的「单页 Web UI」**
 
-> **Image MultiModel** — A unified AI image generation platform powered by the Z-Image Turbo workflow via a native in-process engine (reusing local ComfyUI source), fully decoupled from any external ComfyUI process.
+> **Image MultiModel** — A unified AI image generation platform powered by an in-process native engine (reusing local ComfyUI source) that hosts multiple diffusion backends: Z-Image Turbo for fast txt2img, Qwen-Image 2.1 Edit for instruction-driven image editing, and Flux.2 Klein 9B for high-quality photoreal txt2img — all fully decoupled from any external ComfyUI process.
 
 ---
 
@@ -23,7 +23,9 @@
 | 特性 | 说明 |
 |---|---|
 | **原生进程内引擎** | 复用项目内 `comfy_kernel` 源码 + aki-v3 自定义节点，`sys.path` 注入后在同一进程内完成 加载→编码→采样→解码，**完全脱离外部 ComfyUI 进程** |
+| **多引擎接入** | `config.yaml → models.engines.*` 声明式注册，同一 `NativeEngine` 框架下现内置 3 个引擎：`z_image_turbo_native`（默认）/ `qwen_image_edit_native`（编辑）/ `flux2_klein_native`（高质量），新引擎接入步骤见 `docs/roadmap/P2-multi-engine.md` |
 | **Z-Image Turbo 工作流** | 内置 Z Image Turbo（阿里通义）高速文生图工作流，支持六层 LoRA 叠加、SeedVR2 超分、Eses 双图对比、显存预留 |
+| **Qwen-Image 2.1 Edit** | 指令化图像编辑（支持参考图与透明图），需 Qwen Research License 授权方可商用（本项目默认非商用） |
 | **显存预检** | 推理前自动估算 VRAM 需求，推荐精度（FP8/FP16）与 batch chunk 大小 |
 | **批量任务队列** | 异步任务队列 + SSE 实时推送，支持批量生成、任务取消、断点恢复 |
 | **预设管理** | 可保存常用参数组合为预设，一键加载复用 |
@@ -108,6 +110,8 @@ docker run --gpus all -p 8288:8288 \
 | 工作流 | 推荐显存 | 用途 | 引擎 key |
 |---|---|---|---|
 | **Z Image Turbo** | ~4GB+ | 高速文生图、实时预览 | `z_image_turbo_native` |
+| **Qwen-Image 2.1 Edit** | ~11GB | 指令化图像编辑（支持参考图）、透明图 | `qwen_image_edit_native` |
+| **Flux.2 Klein 9B (fp8)** | ~12GB（需 offload） | 高质量文生图（照片级），需 CPU/RAM 卸载 | `flux2_klein_native` |
 
 ---
 
@@ -256,6 +260,8 @@ python -m pytest tests/e2e -m e2e
 | 模型 | 引擎 key | 权重许可 | 商用 | 说明 |
 |---|---|---|---|---|
 | Z-Image Turbo（阿里通义） | `z_image_turbo_native` | Apache-2.0 | ✅ 可商用 | 默认引擎 |
+| Qwen-Image 2.1（阿里通义） | `qwen_image_edit_native` | Qwen Research License | ❌ 仅限非商业 | 编辑引擎；商用需向千问团队另行申请 |
+| FLUX.2 Klein 9B（Black Forest Labs） | `flux2_klein_native` | FLUX Non-Commercial | ❌ 仅限非商业 | 4B 变体为 Apache-2.0，9B/fp8/NVFP4 均为非商用 |
 | SeedVR2（字节跳动，超分组件） | —（工作流内置） | Apache-2.0 | ✅ 可商用 | 见 NOTICE |
 
 ## 许可证
