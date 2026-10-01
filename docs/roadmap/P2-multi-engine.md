@@ -81,7 +81,7 @@
 
 ## 开放问题 / 阻塞项
 
-- ⚠ **产物元数据入库未 stat 磁盘（2026-10-01 端到端冒烟发现）**：任务 completed 后 `history_db.outputs` 行的 `file_size / width / height / sha256` 均为 0/空，磁盘上真实 PNG 存在（335 KB）；不阻塞出图与展示（前端直接读文件），但影响历史统计、去重与图库卡片预渲染。下一小步：`native/preview.py` 或 `generation_service` 写 outputs 前用 `PIL.Image.open + stat` 与 `hashlib.sha256` 补上；参考 `tests/integration/test_forward_path_api.py` 的产物断言。
+- ✅ **产物元数据入库已 stat 磁盘（2026-10-01 冒烟发现 → 已由 `fb955b7` 修复，2026-10-01 复核关闭）**：`services/task_worker.py` 的 `_probe_output_metadata()` 真读磁盘尺寸/像素、`compute_file_sha256()` 落输出指纹，worker 落库时把非 0 的 `file_size / width / height / sha256` 写入 `history_db.outputs`（见 L200–219）。回归测试 `tests/test_output_metadata_probe.py` 锁定该行为（probe 真实尺寸 + worker 链路落库非 0）。本开放问题关闭。
 - ⚠️ widget 双处同步坑：aki-v3 工作流 JSON 的 `widgets_values`（positional）与 `widgets_values_named` 可能不同步，子图容器与内部还可能三处冲突 → **移植时一律读容器 positional 并实机验证**（详见蓝图「已知坑」）。
 - 多引擎 UI 过滤：README 已移除「全部 / Native」过滤项、简化为直接列引擎；新增引擎后需确认前端引擎列表渲染无回归。
 - 无独立阻塞，架构层已支持。
