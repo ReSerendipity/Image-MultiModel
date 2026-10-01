@@ -240,7 +240,7 @@
       <div class="kv"><span data-i18n="dd_time">耗时 · 时间</span><b id="ddTime">…</b></div>
       <div class="kv"><span>cfg · steps</span><b id="ddCfgSteps">…</b></div>
       <div class="kv"><span>LoRA / SeedVR2 / Eses</span><b id="ddLora">…</b></div>
-      <div class="btn-row-6"><button class="btn btn-primary btn-sm" id="ddRedraw" type="button" data-i18n="dd_redraw">用相同参数重绘</button><button class="btn btn-sm" id="ddSavePreset" type="button" data-i18n="dd_save_preset">保存为预设</button><button class="btn btn-sm" id="ddZip" type="button" data-i18n="dd_zip">下载 ZIP</button></div>
+      <div class="btn-row-6"><button class="btn btn-primary btn-sm" id="ddRedraw" type="button" data-i18n="dd_redraw">用相同参数重绘</button><button class="btn btn-sm" id="ddSavePreset" type="button" data-i18n="dd_save_preset">保存为预设</button><button class="btn btn-sm" id="ddZip" type="button" data-i18n="dd_zip">下载 ZIP</button><!-- M4「问 AI」：以本条历史的首张图发起多模态对话 --><button class="btn btn-sm" id="ddAskAI" type="button" data-i18n="btn_ask_ai">✦ 问 AI</button></div>
     </div>
   </div>
 </aside>
@@ -404,6 +404,8 @@
       <button id="vFav" title="收藏" aria-label="收藏" type="button">☆</button>
       <button id="vDownload" title="下载" aria-label="下载" type="button">↓</button>
       <button id="vRedraw" title="重绘" aria-label="重绘" type="button">↻</button>
+      <!-- M4「问 AI」：把当前查看的图作为首条上下文发给 Agent 抽屉（多模态入口） -->
+      <button id="vAskAI" title="问 AI" aria-label="问 AI" data-i18n="btn_ask_ai" type="button">✦</button>
       <button id="vClose" title="关闭（Esc）" aria-label="关闭" type="button">✕</button>
     </div>
   </div>

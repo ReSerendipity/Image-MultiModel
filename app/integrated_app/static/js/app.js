@@ -177,6 +177,10 @@ document.getElementById('vFav').addEventListener('click',function(){this.classLi
 document.getElementById('vClose').addEventListener('click',function(){viewer.classList.remove('show');});
 document.getElementById('vDownload').addEventListener('click',function(){if(_curViewer)window.open('/api/outputs/'+_curViewer.path,'_blank');});
 document.getElementById('vRedraw').addEventListener('click',function(){if(_curViewer&&_curViewer.task_id){var tid=_curViewer.task_id;viewer.classList.remove('show');redrawTask(tid);}});
+// M4「问 AI」：把当前查看的图挂进 Agent 抽屉（不自动发送，留输入框给用户补话）
+document.getElementById('vAskAI').addEventListener('click',function(){
+  if(_curViewer&&_curViewer.path&&typeof window.agentAskWithImage==='function')window.agentAskWithImage(_curViewer.path,'');
+});
 document.getElementById('vPrev').addEventListener('click',function(){navViewer(-1);});
 document.getElementById('vNext').addEventListener('click',function(){navViewer(1);});
 document.getElementById('vFull').addEventListener('click',function(){if(document.fullscreenElement){document.exitFullscreen().catch(function(){});}else if(viewer.requestFullscreen){viewer.requestFullscreen().catch(function(){});}});
@@ -718,6 +722,19 @@ document.getElementById('ddSavePreset').addEventListener('click',function(){
   API.post('/presets',{engine_name:_curDetailTask.engine||'z_image_turbo_native',name:'任务 '+String(_curDetailTask.task_id).substring(0,8),config:cfg}).then(function(){window.alert('已保存为预设');}).catch(function(e){window.alert('保存失败: '+e);});
 });
 document.getElementById('ddZip').addEventListener('click',function(){if(_curDetailTask)window.open('/api/tasks/export?ids='+_curDetailTask.task_id,'_blank');});
+// M4「问 AI」：以本条历史的首张输出图发起多模态对话（手写/生成的历史都吃）
+function detailFirstOutputPath(){
+  if(!_curDetailTask)return null;
+  var outs=_curDetailTask.outputs||_curDetailTask.result||[];
+  if(!outs||!outs.length)return null;
+  var first=outs[0];
+  return first?(first.path||first||null):null;
+}
+document.getElementById('ddAskAI').addEventListener('click',function(){
+  var p=detailFirstOutputPath();
+  if(!p){window.alert('这条任务没有可对话的图片输出。');return;}
+  if(typeof window.agentAskWithImage==='function')window.agentAskWithImage(p,'');
+});
 var _origShowHistList=showHistList;
 showHistList=function(){_origShowHistList();renderHist();};
 document.getElementById('histSearch').addEventListener('input',function(){
@@ -912,10 +929,18 @@ renderGallery=function(filter){
       var d=document.createElement('div');d.className='g-card';
       var ar=(out.width&&out.height)?out.width+'/'+out.height:'1/1';
       d.style.setProperty('--ar',ar);
-      d.innerHTML='<span class="g-type">'+escHtml(typeLabel(out.output_type)||tr('gen_result'))+'</span><div class="ph"><img src="/api/outputs/'+out.path+'" class="img-fit-sm"></div><div class="g-meta"><b>'+escHtml((out.prompt||tr('gen_result')).substring(0,20))+'</b><span>'+escHtml(engLabel(out.engine))+' · '+(out.created_at?String(out.created_at).substring(5,16):'')+'</span></div>';
+      // 「问 AI」文案取自 chat.js 的 I18N（app.js 的 tr() 词典里没有这个键）
+      var askLabel=(window.__agentChatInternals&&window.__agentChatInternals.t)?(window.__agentChatInternals.t('btn_ask_ai')||'Ask AI'):'Ask AI';
+      d.innerHTML='<span class="g-type">'+escHtml(typeLabel(out.output_type)||tr('gen_result'))+'</span><div class="ph"><img src="/api/outputs/'+out.path+'" class="img-fit-sm"><button class="g-ask" type="button" aria-label="'+escHtml(askLabel)+'" title="'+escHtml(askLabel)+'">✦</button></div><div class="g-meta"><b>'+escHtml((out.prompt||tr('gen_result')).substring(0,20))+'</b><span>'+escHtml(engLabel(out.engine))+' · '+(out.created_at?String(out.created_at).substring(5,16):'')+'</span></div>';
       // P2-4 CSP 收紧：onerror 属性改 JS 属性绑定
       var gImg=d.querySelector('.ph img');
       if(gImg)gImg.onerror=function(){this.parentElement.textContent=tr('load_failed');};
+      // M4「问 AI」：卡片上的悬浮小按钮，只挂图不打开查看器（故阻止冒泡）
+      var gAsk=d.querySelector('.g-ask');
+      if(gAsk)gAsk.addEventListener('click',function(e){
+        e.stopPropagation();
+        if(typeof window.agentAskWithImage==='function')window.agentAskWithImage(out.path,'');
+      });
       d.addEventListener('click',function(){openViewerReal(out,list,idx);});
       gMasonry.appendChild(d);
     });
@@ -1085,7 +1110,11 @@ fetch('/api/config').then(function(r){return r.json();}).then(function(cfg){
    ================================================================ */
 var ENGINES={};        // engine key → display_name（来自 /api/config）
 var TYPE_LABELS={original:'type_original',upscaled:'type_upscaled',compare:'type_compare'};
-function typeLabel(k){return tr(TYPE_LABELS[k]||k)||k;}
+/* GOTCHAS（2026-09-30）：``tr()`` 内部对 ``k`` 直接调 ``k.indexOf('st_')``，
+   故 ``typeLabel(undefined)`` 会抛 ``Cannot read properties of undefined``。
+   调用点（openViewerReal 等）常只拿到 `{path, prompt}` 这类部分对象，
+   此处做空值防御：缺失时返回空串，由调用方 ``||`` 兜到默认文案。 */
+function typeLabel(k){if(k===undefined||k===null||k==='')return '';return tr(TYPE_LABELS[k]||k)||k;}
 var FILTER_MAP={'全部':null,'原图':'original','超分':'upscaled','对比图':'compare'};
 var _CFG=null;         // 最近一次 /api/config 快照
 

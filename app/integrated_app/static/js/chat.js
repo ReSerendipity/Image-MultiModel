@@ -68,6 +68,12 @@
       task_unknown: '未知原因',
       img_alt: '生成结果',
       img_skipped: '任务完成，但有 {n} 个输出路径不可经 /api/outputs 访问，已跳过',
+      btn_ask_ai: "问 AI",
+      err_image_unavailable: "这张图不在 outputs 下，无法作为对话上下文。",
+      thumb_zoom: "点击放大",
+      btn_run_edit: '执行编辑',
+      edit_running: '执行中…',
+      edit_no_engine: '无可用编辑引擎',
       err_request: '请求失败：{msg}（请确认服务与 LLM 大脑在线）'
     },
     'zh-TW': {
@@ -112,6 +118,12 @@
       task_unknown: '未知原因',
       img_alt: '生成結果',
       img_skipped: '任務完成，但有 {n} 個輸出路徑無法經 /api/outputs 存取，已略過',
+      btn_ask_ai: "問 AI",
+      err_image_unavailable: "這張圖不在 outputs 下，無法作為對話上下文。",
+      thumb_zoom: "點擊放大",
+      btn_run_edit: '執行編輯',
+      edit_running: '執行中…',
+      edit_no_engine: '無可用編輯引擎',
       err_request: '請求失敗：{msg}（請確認服務與 LLM 大腦在線）'
     },
     'en-US': {
@@ -156,6 +168,12 @@
       task_unknown: 'unknown reason',
       img_alt: 'Generated result',
       img_skipped: 'Task completed, but {n} output path(s) are not reachable via /api/outputs and were skipped',
+      btn_ask_ai: "Ask AI",
+      err_image_unavailable: "This image is not under outputs/, so it cannot be attached to the chat.",
+      thumb_zoom: "Click to enlarge",
+      btn_run_edit: 'Run edit',
+      edit_running: 'Running…',
+      edit_no_engine: 'No edit engine available',
       err_request: 'Request failed: {msg} (check that the service and the LLM brain are online)'
     },
     'ja-JP': {
@@ -200,6 +218,12 @@
       task_unknown: '不明な理由',
       img_alt: '生成結果',
       img_skipped: 'タスク完了。ただし {n} 件の出力パスは /api/outputs から取得できないためスキップしました',
+      btn_ask_ai: "AI に聞く",
+      err_image_unavailable: "この画像は outputs 配下にないため、対話の文脈にできません。",
+      thumb_zoom: "クリックで拡大",
+      btn_run_edit: '編集を実行',
+      edit_running: '実行中…',
+      edit_no_engine: '利用可能な編集エンジンがありません',
       err_request: 'リクエスト失敗: {msg}（サービスと LLM ブレインの起動を確認してください）'
     },
     'ko-KR': {
@@ -244,6 +268,12 @@
       task_unknown: '알 수 없는 원인',
       img_alt: '생성 결과',
       img_skipped: '작업은 완료되었으나 {n}개의 출력 경로를 /api/outputs 로 가져올 수 없어 건너뛰었습니다',
+      btn_ask_ai: "AI에게 물어보기",
+      err_image_unavailable: "이 이미지는 outputs 아래에 없어 대화 컨텍스트로 쓸 수 없습니다.",
+      thumb_zoom: "클릭하여 확대",
+      btn_run_edit: '편집 실행',
+      edit_running: '실행 중…',
+      edit_no_engine: '사용 가능한 편집 엔진이 없습니다',
       err_request: '요청 실패: {msg} (서비스와 LLM 두뇌가 온라인인지 확인하세요)'
     }
   };
@@ -305,6 +335,20 @@
     '.agent-msg.sys{color:#888;font-size:12px}',
     '.agent-msg.err{color:#a32d2d;font-size:12px}',
     '.agent-msg img{max-width:100%;border-radius:8px;margin-top:4px;border:1px solid rgba(0,0,0,.1)}',
+    /* M5 多轮对话的图气泡：输入缩略 40×40、输出缩略 120×120；点击放大回走现有查看器 */
+    '.agent-msg.with-img{display:flex;flex-wrap:wrap;gap:6px;align-items:flex-start}',
+    '.agent-msg.with-img img[data-agent-thumb],.agent-msg.with-img img.agent-img-out{',
+    'width:40px;height:40px;object-fit:cover;object-position:center;cursor:zoom-in;flex:0 0 auto;max-width:none;margin-top:2px}',
+    '.agent-msg.agent img.agent-img-out{width:120px;height:120px}',
+    '.agent-msg.with-img img[data-agent-thumb]:hover,.agent-msg.with-img img.agent-img-out:hover{',
+    'border-color:var(--seed-primary,#e8822a);box-shadow:0 1px 6px rgba(0,0,0,.15)}',
+    /* M6 编辑桥接：助手气泡下的「执行编辑」按钮（默认隐形，hover/focus 才出现，不抢正文） */
+    '.agent-msg.agent{position:relative}',
+    '.agent-edit-btn{margin:6px 0 2px;font-size:12px;padding:4px 10px;border-radius:6px;cursor:pointer;',
+    'border:1px solid var(--seed-primary,#e8822a);background:#fff;color:var(--seed-primary,#e8822a);opacity:.75}',
+    '.agent-msg.agent:hover .agent-edit-btn,.agent-edit-btn:focus-visible{opacity:1}',
+    '.agent-edit-btn:hover:not(:disabled){background:var(--seed-primary,#e8822a);color:#fff}',
+    '.agent-edit-btn:disabled{opacity:.45;cursor:not-allowed;border-color:rgba(0,0,0,.18);color:#888}',
     '.agent-msg.streaming::after{content:"▍";opacity:.55;animation:agent-blink 1s steps(2,start) infinite}',
     '@keyframes agent-blink{to{visibility:hidden}}',
     '#agent-form{display:flex;border-top:1px solid rgba(0,0,0,.12)}',
@@ -338,6 +382,59 @@
     box.appendChild(m);
     box.scrollTop = box.scrollHeight;
     return m;
+  }
+
+  /* ============ 用户气泡（M4 多模态入口） ============ */
+  var MAX_SEND_IMAGES = 8;
+
+  /**
+   * M4「问 AI」的用户气泡：文本 + 可选图片缩略。
+   *
+   * ⚠️ 上行的是**仓库内相对路径**（``outputs/...``），**不是** ``/api/outputs/...`` URL：
+   * 后端 ``_validate_images`` 会拿它过 PathGuard 白名单，喂 URL 会直接 422。
+   * ``img.src`` 由调用方给（这里走 outputUrl() 渲染成可访问的 URL），两者职责分开。
+   */
+  function addUserMsg(text, images) {
+    var box = document.getElementById('agent-msgs');
+    var m = el('div', 'agent-msg user');
+    if (text) m.appendChild(document.createTextNode(text));
+    var refs = images || [];
+    if (refs.length) m.className = 'agent-msg user with-img';
+    refs.slice(0, MAX_SEND_IMAGES).forEach(function (img) {
+      if (!img || !img.src) return;
+      m.appendChild(makeThumb(img));
+    });
+    box.appendChild(m);
+    box.scrollTop = box.scrollHeight;
+    return m;
+  }
+
+  /**
+   * M5：气泡里的图片缩略（输入/输出同款样式，仅尺寸档位不同由 CSS 区分）。
+   * 点击放大 → 复用 app.js 的全屏查看器（``openViewerReal`` 是全局函数声明）。
+   */
+  function makeThumb(imgInfo) {
+    var thumb = document.createElement('img');
+    thumb.src = imgInfo.src;
+    thumb.alt = imgInfo.alt || t('img_alt');
+    thumb.setAttribute('data-agent-thumb', '1');
+    thumb.title = t('thumb_zoom');
+    thumb.addEventListener('click', function () { enlargeThumb(thumb.getAttribute('src')); });
+    return thumb;
+  }
+
+  function enlargeThumb(src) {
+    var raw = String(src || '');
+    var idx = raw.indexOf('/api/outputs/');
+    if (idx < 0 || typeof window.openViewerReal !== 'function') return;
+    // 反向解出仓库相对路径：查看器需要 out.path（/api/outputs/ 之后的段）
+    var rel = '';
+    try { rel = decodeURIComponent(raw.slice(idx + '/api/outputs/'.length)); } catch (e) { rel = ''; }
+    if (!rel) return;
+    // 只给查看器够用的字段。刻意**不带** output_type：
+    // 聊天相册里的图是普通生成产物，不是对比图的 original/upscaled/compare，
+    // 硬塞 'original' 会让信息栏显示成"原图"。置空后由 typeLabel 的兜底走空档。
+    window.openViewerReal({ path: rel, prompt: t('img_alt') }, null, -1);
   }
 
   /* ============ 任务载荷归一化 ============ */
@@ -451,9 +548,9 @@
     (paths || []).slice(0, MAX_OUTPUTS).forEach(function (p) {
       var url = outputUrl(p);
       if (!url) { skipped += 1; return; }
-      var img = document.createElement('img');
-      img.src = url;
-      img.alt = t('img_alt');
+      // M5：生成结果按「输出档」渲染（120×120 缩略），与用户侧输入缩略（40×40）区分开
+      var img = makeThumb({ src: url, alt: t('img_alt') });
+      img.className = 'agent-img-out';
       img.addEventListener('error', function () { img.style.display = 'none'; });
       target.appendChild(img);
       shown += 1;
@@ -735,6 +832,82 @@
     _streamBubble = null;
   }
 
+  /* ============ M6：编辑指令桥接（VLM 输出 → 一键执行编辑） ============ */
+  /* 后端契约（实测，2026-10-01）：没有 ``POST /api/generate?mode=edit`` 这种端点。
+     真实编辑入口是 ``POST /api/generate`` 的请求体字段 ``edit_mode: true``
+     且必须给 ``reference_image_path``（见 services/generation_service.py 的编辑守卫），
+     另需 ``engine_name`` 指向 supported_features 含 edit 的引擎。 */
+
+  /**
+   * 给最后一条助手气泡挂「执行编辑」按钮。
+   *
+   * ⚠️ 只加按钮、**不改用户的图**：点击才真正请求编辑；
+   * 且 ``engine_name`` 为空（无编辑引擎）时按钮为 disabled + 说明文案，不静默降级成文生图。
+   */
+  function attachEditAction(intent) {
+    if (!intent) return null;
+    var box = document.getElementById('agent-msgs');
+    if (!box) return null;
+    var bubble = box.querySelector('.agent-msg.agent:last-of-type');
+    if (!bubble) return null;
+    var hasEngine = !!intent.engine_name;
+    var ref = (intent.reference_images || [])[0] || '';
+    var btn = el('button', 'agent-edit-btn', hasEngine ? t('btn_run_edit') : t('edit_no_engine'));
+    btn.type = 'button';
+    btn.setAttribute('data-agent-edit', '1');
+    if (!hasEngine || !ref) {
+      // 无引擎/无参考图：如实说明， Disable 而不是拿空字段去撞 422
+      btn.disabled = true;
+      btn.title = ref ? t('edit_no_engine') : t('err_image_unavailable');
+      bubble.appendChild(btn);
+      return null;
+    }
+    btn.addEventListener('click', function () {
+      btn.disabled = true;
+      btn.textContent = t('edit_running');
+      runEdit(intent, ref, btn);
+    });
+    bubble.appendChild(btn);
+    return btn;
+  }
+
+  /** 「执行编辑」→ POST /api/generate（edit_mode）。成功入队后按现有任务流轮询回显。 */
+  function runEdit(intent, refPath, btn) {
+    var body = {
+      positive_prompt: intent.prompt || '',
+      edit_mode: true,
+      reference_image_path: refPath,
+      engine_name: intent.engine_name || '',
+      // 编辑模式下后处理会改参考图尺寸语义，关掉以免掩盖编辑差异
+      seedvr2_enable: false,
+      eses_enable: false
+    };
+    fetch('/api/generate', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken() || '' },
+      body: JSON.stringify(body)
+    })
+      .then(function (resp) {
+        return resp.json().then(function (j) {
+          return { ok: resp.ok, status: resp.status, body: j };
+        });
+      })
+      .then(function (r) {
+        btn.disabled = false;
+        if (!r.ok) throw new Error('HTTP ' + r.status + (r.body && r.body.detail ? ': ' + r.body.detail : ''));
+        var taskId = r.body && r.body.task_id;
+        if (!taskId) throw new Error('no task_id');
+        taskStarted();
+        var m = addMsg('agent', t('task_queued', { id: taskId }));
+        pollTask(taskId, m);
+      })
+      .catch(function (e) {
+        btn.disabled = false;
+        addMsg('err', t('err_request', { msg: e.message }));
+      });
+  }
+
   function handleEvent(evt) {
     if (!evt || !evt.type) return;
     if (evt.type === 'delta') {
@@ -755,22 +928,30 @@
       renderProposal(evt);
     } else if (evt.type === 'final') {
       endStream(evt.text, !!evt.replace);
+      // M6：本轮解析出编辑意图时，在气泡下挂「执行编辑」（点前不改图，点了才请求）
+      if (evt.edit_intent) attachEditAction(evt.edit_intent);
     } else if (evt.type === 'error') {
       if (_streamBubble) { _streamBubble.classList.remove('streaming'); _streamBubble = null; }
       addMsg('err', evt.text);
     }
   }
 
-  function send(text, btn) {
-    addMsg('user', text);
-    btn.disabled = true;
+  function send(text, btn, images) {
+    var refs = (images || []).slice(0, MAX_SEND_IMAGES).map(function (img) {
+      // 只带 path：后端 AgentImage 的 path / b64 互斥且恰好其一
+      return img && img.path ? { path: img.path, role: img.role || 'input' } : null;
+    }).filter(Boolean);
+    addUserMsg(text, refs.map(function (r) { return { src: outputUrl(r.path), alt: t('img_alt') }; }));
+    if (btn) btn.disabled = true;
     _streamBubble = null; // 新一轮重置流式气泡
     fetch('/api/agent/chat', {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken() || '' },
       // session_id 必须稳定复用，否则每轮都是新会话、多轮上下文（「再来一张」）失效
-      body: JSON.stringify({ message: text, session_id: sessionId(), mode: currentMode() })
+      body: JSON.stringify({
+        message: text, session_id: sessionId(), mode: currentMode(), images: refs
+      })
     }).then(function (resp) {
       if (!resp.ok || !resp.body) { throw new Error('HTTP ' + resp.status); }
       var reader = resp.body.getReader();
@@ -800,9 +981,57 @@
       return pump();
     }).catch(function (err) {
       addMsg('err', t('err_request', { msg: err.message }));
-      btn.disabled = false;
+      if (btn) btn.disabled = false;
     });
   }
+
+  /* ============ M4「问 AI」入口 ============ */
+  /**
+   * 把一张图作为首条上下文交给 Agent 抽屉（查看器 / 历史详情 / 画廊三处共用）。
+   *
+   * - 抽屉被打开（原本折叠时自动展开）；
+   * - ``prompt`` 非空 → 预填输入框并**立即发送**（带 images 一并上行）；
+   * - ``prompt`` 为空 → 只把图贴进气泡、聚焦输入框，由用户自己补话（不替用户编提问）。
+   *
+   * @param {string} rawPath 仓库内相对路径（``outputs/...``）；绝对/越界路径拒绝挂载
+   * @param {string} [prompt] 预填提问，可空
+   * @returns {boolean} 是否成功挂上图片
+   */
+  function openWithImage(rawPath, prompt) {
+    var path = String(rawPath || '').replace(/\\/g, '/').trim();
+    var drawer = document.getElementById('agent-drawer');
+    if (drawer) drawer.classList.add('open');
+
+    // ⚠️ 路径形态：查看器/画廊给出的是 **outputs/ 之后的相对段**（如 `fake_00001_.png`），
+    // 历史详情与部分接口给的是 `outputs/...` 全相对路径——两种都要吃（outputUrl 已兼容两者）。
+    // 这里只是**渲染前的 UX 卫生**（避免贴一个必然 404 的 <img>），
+    // 真正的越权拦截在后端 `_validate_images` 的 PathGuard，不在此处替代。
+    var isAbs = /^[A-Za-z]:\//.test(path) || path.charAt(0) === '/';
+    var hasDotDot = path.split('/').indexOf('..') >= 0 || path.split('\\').indexOf('..') >= 0;
+    var url = isAbs || hasDotDot ? null : outputUrl(path);
+    if (!url) {
+      addMsg('err', t('err_image_unavailable'));
+      return false;
+    }
+
+    var input = document.getElementById('agent-input');
+    var sendBtn = document.getElementById('agent-send');
+    var text = prompt ? String(prompt) : '';
+    if (input) input.value = text;
+
+    if (!text) {
+      // 只贴图、不代用户提问：气泡里放缩略图 + 输入框保持空白并聚焦
+      addUserMsg('', [{ src: url, alt: t('img_alt') }]);
+      if (input) input.focus();
+      return true;
+    }
+    send(text, sendBtn, [{ path: path, role: 'input', src: url, alt: t('img_alt') }]);
+    return true;
+  }
+
+  // 全局缝：app.js（画廊卡片 / 查看器 / 历史详情）在 chat.js 之后才绑定事件，
+  // 这里挂 window 让三方都能调用，避免彼此 hard-ref 出 undefined。
+  if (typeof window !== 'undefined') window.agentAskWithImage = openWithImage;
 
   /* ============ 语言跟随 ============ */
   var _nodes = null;
@@ -936,6 +1165,14 @@
       currentMode: currentMode,
       renderProposal: renderProposal,
       fillWorkbench: fillWorkbench,
+      addUserMsg: addUserMsg,
+      renderOutputs: renderOutputs,
+      enlargeThumb: enlargeThumb,
+      openWithImage: openWithImage,
+      attachEditAction: attachEditAction,
+      runEdit: runEdit,
+      handleEvent: handleEvent,
+      addMsg: addMsg,
       sessionId: sessionId,
       updateModelStatus: updateModelStatus,
       taskStarted: taskStarted,

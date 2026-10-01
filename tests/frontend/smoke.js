@@ -10,6 +10,8 @@ const ROOT = path.join(__dirname, '..', '..');
 const RENDERED = path.join(__dirname, '_rendered');
 const HTML_FILE = path.join(RENDERED, 'index.html');
 const APP_JS = path.join(ROOT, 'app', 'integrated_app', 'static', 'js', 'app.js');
+// M4：Agent 抽屉由 chat.js 挂载，问 AI 入口的冒烟必须连它一起装（否则 window.agentAskWithImage 不存在）
+const CHAT_JS = path.join(ROOT, 'app', 'integrated_app', 'static', 'js', 'chat.js');
 
 /* ============ 模拟后端 ============ */
 const MOCK = {
@@ -47,10 +49,14 @@ const MOCK = {
   }
 };
 
+// M6：记录所有 fetch 调用，供「执行编辑」桥接断言请求体形状（否则只能看到 ok）
+const MOCK_CALLS = [];
+
 function mockFetch(u, o) {
   u = String(u);
   const method = (o && o.method) || 'GET';
   const pathname = u.split('?')[0];
+  MOCK_CALLS.push({ url: pathname, method: method, body: o && o.body ? String(o.body) : '' });
   const j = (x) => Promise.resolve({
     json: () => Promise.resolve(x), ok: true, status: 200,
     headers: { get: () => null }
@@ -99,10 +105,13 @@ function boot(opts) {
       if (opts.lang) w.localStorage.setItem('imm_lang', opts.lang);
     }
   });
-  // jsdom 默认不拉取外部脚本：手动注入 app.js 执行
+  // jsdom 默认不拉取外部脚本：手动注入 app.js（+ chat.js，M4 起）执行
   const s = dom.window.document.createElement('script');
   s.textContent = fs.readFileSync(APP_JS, 'utf-8');
   dom.window.document.body.appendChild(s);
+  const s2 = dom.window.document.createElement('script');
+  s2.textContent = fs.readFileSync(CHAT_JS, 'utf-8');
+  dom.window.document.body.appendChild(s2);
   return { dom, errors };
 }
 
@@ -265,6 +274,144 @@ const click = (d, target) => {
     assert(d.getElementById('posPrompt').tagName === 'TEXTAREA', 'prompt is textarea');
     const viewerBtns = [...d.querySelectorAll('#viewer .v-tools button')];
     assert(viewerBtns.length >= 10 && viewerBtns.every(b => b.getAttribute('aria-label')), 'viewer tools have aria-label');
+  }
+
+  /* ============ M4「问 AI」入口（多模态首条上下文） ============ */
+  console.log('[ask-ai entry]');
+  {
+    const { dom, errors } = boot({});
+    const d = dom.window.document;
+    await sleep(350);
+    assert(errors.length === 0, 'init no errors');
+    // 1) 静态入口存在：查看器工具条 + 历史详情按钮行
+    assert(!!d.getElementById('vAskAI') && d.getElementById('vAskAI').getAttribute('type') === 'button',
+      'viewer exposes #vAskAI button');
+    assert(!!d.getElementById('ddAskAI') && d.getElementById('ddAskAI').getAttribute('type') === 'button',
+      'history detail exposes #ddAskAI button');
+    assert(d.getElementById('vAskAI').getAttribute('aria-label') === '问 AI', 'vAskAI has中文 aria-label');
+    assert(d.getElementById('vAskAI').getAttribute('data-i18n') === 'btn_ask_ai', 'vAskAI carries i18n key');
+    // 2) 画廊卡片悬浮按钮：DOM 里恒存在（仅靠 CSS 隐身），hover 前后都可断言
+    click(d, '#openGallery');
+    await sleep(60);
+    const asks = [...d.querySelectorAll('#gMasonry .g-card .g-ask')];
+    assert(asks.length >= 1, 'gallery card renders .g-ask button');
+    assert(asks.every(b => b.tagName === 'BUTTON' && b.getAttribute('aria-label')), 'g-ask buttons have aria-label');
+    assert(asks[0].getAttribute('aria-label') === '问 AI', 'g-ask label from chat.js i18n');
+  }
+
+  /* ============ M4：挂图开抽屉（不代用户编提问） ============ */
+  console.log('[ask-ai opens drawer]');
+  {
+    const { dom, errors } = boot({});
+    const d = dom.window.document;
+    await sleep(350);
+    assert(errors.length === 0, 'init no errors');
+    const api = dom.window.agentAskWithImage;
+    assert(typeof api === 'function', 'window.agentAskWithImage exposed by chat.js');
+    // 画廊形态的相对段路径（非 outputs/ 前缀）也要能吃
+    assert(api('fake_00001_.png', '') === true, 'accepts gallery-style relative path');
+    const drawer = d.getElementById('agent-drawer');
+    assert(drawer.classList.contains('open'), 'drawer auto-opens on ask-with-image');
+    const thumbs = [...d.querySelectorAll('#agent-msgs .agent-msg.user img[data-agent-thumb]')];
+    assert(thumbs.length === 1, 'user bubble carries 1 image thumb');
+    assert(thumbs[0].getAttribute('src').includes('/api/outputs/'), 'thumb src points to /api/outputs');
+    assert(d.getElementById('agent-input').value === '', "no prompt → input left empty (do not fake a question)");
+    // 越界/绝对路径：拒绝挂载，且给出可读原因（不静默）
+    assert(api('C:/Windows/system.ini', '') === false, 'rejects absolute out-of-tree path');
+    assert(api('../../etc/passwd', '') === false, 'rejects traversal path');
+    const errs = [...d.querySelectorAll('#agent-msgs .agent-msg.err')];
+    assert(errs.length >= 1 && errs[0].textContent.indexOf('outputs') >= 0, 'rejection is surfaced to user');
+  }
+
+  /* ============ M4：g-ask 点击只挂图，不打开查看器 ============ */
+  console.log('[g-ask does not hijack card click]');
+  {
+    const { dom, errors } = boot({});
+    const d = dom.window.document;
+    await sleep(350);
+    assert(errors.length === 0, 'init no errors');
+    click(d, '#openGallery');
+    await sleep(60);
+    click(d, '#gMasonry .g-card .g-ask');
+    assert(!d.getElementById('viewer').classList.contains('show'), 'card click not triggered by g-ask (stopPropagation)');
+    assert(d.getElementById('agent-drawer').classList.contains('open'), 'g-ask still opens agent drawer');
+  }
+
+  /* ============ M5：多轮图气泡（输入 40×40 / 输出 120×120 + 点击放大） ============ */
+  console.log('[agent image bubbles]');
+  {
+    const { dom, errors } = boot({});
+    const d = dom.window.document;
+    await sleep(350);
+    assert(errors.length === 0, 'init no errors');
+    const internals = dom.window.__agentChatInternals;
+    // 输出档：生成结果缩略 go 到 .agent-img-out（CSS 里 120×120）
+    const outBox = d.createElement('div');
+    d.getElementById('agent-msgs').appendChild(outBox);
+    internals.renderOutputs(['outputs/2026/10/a.png'], outBox);
+    const outImg = outBox.querySelector('img.agent-img-out');
+    assert(!!outImg && outImg.getAttribute('data-agent-thumb') === '1', 'output thumb rendered with .agent-img-out');
+    assert(outImg.getAttribute('src').includes('/api/outputs/'), 'output thumb src is /api/outputs');
+    // 输入档：用户气泡带 .with-img（CSS 里 40×40）
+    dom.window.agentAskWithImage('fake_00001_.png', '');
+    const userBubble = d.querySelector('#agent-msgs .agent-msg.user.with-img');
+    assert(!!userBubble, 'user bubble gets .with-img for flex thumbnail grid');
+    const inImg = userBubble.querySelector('img[data-agent-thumb]');
+    assert(inImg.getAttribute('title') === '点击放大', 'thumb carries enlarge hint (zh-CN)');
+    // 点击放大 → 走现有全屏查看器：点哪张就渲染哪张（enlargeThumb 从 URL 反解回仓库相对路径）
+    click(d, outImg);
+    assert(d.getElementById('viewer').classList.contains('show'), 'output thumb click opens existing viewer');
+    let vImg = d.getElementById('vImg').querySelector('img');
+    assert(!!vImg && vImg.getAttribute('src').includes('a.png'), 'viewer renders the clicked output file');
+    click(d, inImg);
+    vImg = d.getElementById('vImg').querySelector('img');
+    assert(!!vImg && vImg.getAttribute('src').includes('fake_00001_.png'), 'viewer renders the clicked input file');
+    assert(internals.enlargeThumb('/not-an-outputs-path/x.png') === undefined, 'enlargeThumb no-ops off outputs');
+  }
+
+  /* ============ M6：编辑指令桥接（final.edit_intent → 「执行编辑」→ POST /api/generate） ============ */
+  console.log('[agent edit bridge]');
+  {
+    const { dom, errors } = boot({});
+    const d = dom.window.document;
+    await sleep(350);
+    assert(errors.length === 0, 'init no errors');
+    const internals = dom.window.__agentChatInternals;
+    const intent = {
+      prompt: '把背景换成雪天，加一点飘雪',
+      source: '[[EDIT]]把背景换成雪天，加一点飘雪[[/EDIT]]',
+      reference_images: ['fake_00001_.png'],
+      engine_name: 'qwen_image_edit_native'
+    };
+    // 走真实链路：final 事件 → 气泡 → 挂按钮（不经内部函数直调）
+    internals.handleEvent({
+      type: 'final',
+      text: '可以。把背景换成雪天，加一点飘雪',
+      edit_intent: intent
+    });
+    const btn = d.querySelector('#agent-msgs .agent-msg.agent .agent-edit-btn');
+    assert(!!btn, 'final.edit_intent attaches an edit button under the bubble');
+    assert(!!btn && !btn.disabled, 'edit button enabled when engine + reference image present');
+    assert(!!btn && btn.getAttribute('data-agent-edit') === '1', 'edit button is machine-identifiable');
+    MOCK_CALLS.length = 0;
+    click(d, btn);
+    await sleep(120);
+    const gen = MOCK_CALLS.filter((c) => c.url === '/api/generate' && c.method === 'POST');
+    assert(gen.length === 1, 'clicking posts exactly one /api/generate request');
+    const body = gen.length ? JSON.parse(gen[0].body) : {};
+    assert(body.edit_mode === true, 'edit_mode=true (real contract, not ?mode=edit)');
+    assert(body.reference_image_path === 'fake_00001_.png', 'reference image is the attached output path');
+    assert(body.positive_prompt === intent.prompt, 'positive_prompt = parsed intent prompt');
+    assert(body.seedvr2_enable === false && body.eses_enable === false, 'post-processing off for edit runs');
+    // 无编辑引擎：按钮禁用 + 如实说明，绝不静默降级成普通文生图
+    internals.handleEvent({
+      type: 'final',
+      text: '可以。',
+      edit_intent: { prompt: '换背景', reference_images: ['fake_00001_.png'], engine_name: null }
+    });
+    const disabled = d.querySelector('#agent-msgs .agent-msg.agent:last-of-type .agent-edit-btn');
+    assert(!!disabled && disabled.disabled === true, 'no edit engine → button disabled, not a silent fallback');
+    assert(!!disabled && disabled.textContent === '无可用编辑引擎', 'disabled button explains why');
   }
 
   console.log('\nRESULT: pass=' + pass + ' fail=' + fail);

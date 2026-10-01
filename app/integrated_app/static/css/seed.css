@@ -220,6 +220,10 @@ input[type=radio]{accent-color:var(--accent)}
 .g-card .ph{height:auto;aspect-ratio:var(--ar,1/1);display:flex;align-items:center;justify-content:center;color:var(--ink-faint);font-size:8.5px;letter-spacing:.08em;background:var(--surface-2);position:relative}
 .g-card .ph::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(45deg,rgba(0,0,0,.03),rgba(0,0,0,.03) 6px,transparent 6px,transparent 12px)}
 .g-card .g-type{position:absolute;top:6px;left:6px;font-size:8px;font-weight:600;padding:2px 6px;border-radius:8px;background:var(--surface);border:1px solid var(--wire);color:var(--ink-soft);z-index:2}
+/* M4「问 AI」：画廊卡片悬浮按钮（默认隐身，hover/键盘聚焦时浮现； always in DOM 以便冒烟测试断言存在） */
+.g-card .g-ask{position:absolute;top:6px;right:6px;z-index:3;width:22px;height:22px;line-height:1;border-radius:50%;border:1px solid var(--wire);background:var(--surface);color:var(--ink-soft);font-size:11px;cursor:pointer;opacity:0;transition:opacity .18s ease,transform .18s ease}
+.g-card:hover .g-ask,.g-card .g-ask:focus-visible{opacity:1}
+.g-card .g-ask:hover{transform:scale(1.08);color:var(--seed-primary,#e8822a);border-color:var(--seed-primary,#e8822a)}
 .g-card .g-meta{padding:6px 9px;border-top:1px solid var(--wire)}
 .g-card .g-meta b{display:block;font-size:10.5px}
 .g-card .g-meta span{font-size:8.5px;color:var(--ink-faint)}

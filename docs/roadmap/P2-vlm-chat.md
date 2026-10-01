@@ -138,12 +138,52 @@
   - 图片点击放大 → 走现有查看器
 - 验收：smoke 覆盖含图消息渲染；浏览器实测中英日韩四语视觉一致。
 
+> **M5 验证状态（2026-10-01 收口）**：前端已落地并通过门禁——
+> ``chat.js`` 新增 `makeThumb()` / `enlargeThumb()`，输出档挂 `.agent-img-out`（120×120）、
+> 输入档 `.with-img` flex 网格（40×40），点击缩略图**复用现有全屏查看器**
+> （`openViewerReal` 是全局函数声明），从 ``/api/outputs/`` URL 反解回仓库相对路径；
+> `enlargeThumb` 对 outputs 之外的路径（绝对路径 / 越权）**no-op**，与后端 PathGuard 同口径。
+> 修了一个真实缺陷：`app.js` 的 `typeLabel(undefined)` 会崩（`tr()` 里对 `k` 直接调 `k.indexOf`），
+> 而查看器常只拿到 `{path, prompt}` 这类部分对象 → 已在 `typeLabel` 加空值防御（返回空串，
+> 由调用方 `||` 兜默认文案），根因修复而非调用点绕开。
+> 验收：`node tests/frontend/smoke.js` **78/78 全绿**（新增 `[agent image bubbles]` 9 项）；
+> `scripts/render_pages.py` 重渲染后复跑仍全绿；全量 `pytest` 1283 passed / 0 failed。
+> **未做**：中英日韩四语浏览器实测（本机只跑 jsdom 冒烟，无真人四语目检）——
+> i18n 键已补齐 `btn_ask_ai` / `thumb_zoom` / `err_image_unavailable` 三语言组，视觉一致性待人工目检。
+
 ### M6 · 编辑指令桥接（可选，≈1.5 天）
-- 目标：VLM 输出的自然语言修改建议（如「把背景换成雪天」）解析为结构化 edit 指令 → 一键 `POST /api/generate?mode=edit`。
+- 目标：VLM 输出的自然语言修改建议（如「把背景换成雪天」）解析为结构化 edit 指令 → 一键发编辑请求。
 - 落点：
   - `native/vlm_engine.py` 加 `parse_edit_intent(text) -> EditIntent | None`（prompt 里预置 few-shot）
   - `chat.js` 消息下方出现「执行编辑」按钮 → 携当前图 + intent 调 edit
 - 验收：`tests/integration/test_vlm_edit_bridge.py` mock VLM 输出验证解析/调用链。
+
+> **M6 落点更正（2026-10-01 实证）**：文档原写的 ``POST /api/generate?mode=edit`` **在本仓不存在**
+> （与 M3 的 `filter_output` 同类的文档失真）。全仓 grep 复核：``generate_routes.py`` 只有
+> `POST /api/generate`（txt2img）与 `POST /api/generate/batch`，**没有**任何 `mode=edit` 参数。
+> 真实编辑入口是同一端点的**请求体字段** ``edit_mode: true`` + ``reference_image_path``
+> （见 `services/generation_service.py`：引擎 `supported_features` 不含 edit、或缺参考图 → 422）。
+> 故桥接按真实契约发 `POST /api/generate`，并在测试里把「intent 能落成一份合法编辑请求」钉住。
+>
+> **M6 验证状态（2026-10-01 收口）**：后端解析 + 编排下发 + 前端桥接已落地并通过门禁——
+> `native/vlm_engine.py` 加 `EditIntent` / `parse_edit_intent` / `strip_edit_block` / `build_edit_few_shot`，
+> 口径是**只认定界标记、绝不关键词猜**（没吐 `[[EDIT]]...[[/EDIT]]` 就返回 `None`，宁可前端不出按钮，
+> 也不能把「这张图很好看」当 prompt 去改用户的图）；`orchestrator._run_turn_impl` 在**本轮带图**时才解析，
+> 命中则随 `final` 事件下发 `edit_intent{prompt, source, reference_images, engine_name}`，
+> 编辑引擎名由注入的 `edit_engine_fn` 解析（与 M2 `vlm_context_fn` 同款注入式，不读全局 config，抛异常也不吞掉整轮）；
+> `strip_edit_block` **只摘标记符号、保留块内提示词**——用户点「执行编辑」前必须看得见将要执行什么，
+> 整块删掉等于让人点一个看不见的动作。
+> 前端 `chat.js` 在助手气泡下挂「执行编辑」按钮（`data-agent-edit` 可被断言识别），
+> 点击才 `POST /api/generate`；`engine_name` 为 null（无编辑引擎）时按钮 **disabled + 说明文案**，
+> **不静默降级**成普通文生图。i18n 五语言补 `btn_run_edit` / `edit_running` / `edit_no_engine`。
+> 验收：`tests/integration/test_vlm_edit_bridge.py` **15 例全绿**（提取/不臆造×6/清空标记/编排下发/
+> 无图不下发/引擎名 None/解析异常不打断/真实 GenerateRequest 契约）；
+> `tests/frontend/smoke.js` `[agent edit bridge]` 11 项（按钮挂载 / 请求体 `edit_mode` / 参考图 /
+> prompt 透传 / 后处理关闭 / 无引擎时 disabled）→ 冒烟 **89/89 全绿**；
+> `mypy` 98 文件零错、`ruff check` 全通过、全量 `pytest` 1298 passed / 0 failed。
+> **未做**：`vlm_context_fn` 与 `edit_engine_fn` 的真实装配接线（依赖 M1 preflight 闭环，本机 Qwen3-VL
+> HF 目录未就位）；故前端按钮目前在**结构化的 mock intent → SSE 下发**路径上被验证，
+> 尚未接真实 VLM 输出跑过端到端。
 
 ### 回归门禁（每 M 收口都跑）
 - `py -3.12 -m mypy app/integrated_app`（ratchet 零错）
