@@ -76,17 +76,22 @@ class PortableConfig(BaseModel):
 class ModelPaths(BaseModel):
     """单个模型文件的路径声明（如 text_encoder / unet / vae）
 
-    两个可选加载字段（2026-10-02 Krea2 实证新增，缺省均为空串 = 历史行为）：
+    可选加载字段（缺省均为空/空列表 = 历史行为）：
         key_prefix:     权重键的统一前缀；非空时加载前剥掉（Krea2 的 AIO checkpoint
                         用 ``model.diffusion_model.`` 前缀，见 GOTCHAS #41）
         clip_type:      CLIP 类型名；非空时显式下发（Krea2 必须是 ``krea2``
                         才能走 12 层 tap 分支，见 GOTCHAS #42）
+        sub_paths:      同一角色的**附加权重文件**（各带自己的 sub_dir/sub_path）。
+                        当前唯一刚需是 FLUX.1-dev 的**双文本编码器** t5xxl + clip_l——
+                        clip_l 在本机 ComfyUI 库里挂在 ``models/clip/`` 下、与 t5xxl 不同目录，
+                        故每个附加项自带 sub_dir。sub_dir 留空时沿用主 sub_dir。
     """
 
     sub_dir: str = ""
     sub_path: str = ""
     key_prefix: str = ""
     clip_type: str = ""
+    sub_paths: list[ModelPaths] = []
 
 
 class EngineConfig(BaseModel):
@@ -140,6 +145,10 @@ class EngineConfig(BaseModel):
     # Flux.2 Klein 实测可用组合：euler / simple（见 scripts/preflight_flux2_klein.py）
     sampler: str = ""
     scheduler: str = ""
+    # FLUX 系的 classifier-free guidance（与 cfg 是两套参数，2026-10-02 实证）。
+    # 0 / 未填 = 不注入，沿用 comfy 的 `model_base.Flux.concat_cond` 内建默认 3.5。
+    # FLUX.1-dev 实测可用值 3.5（scripts/preflight_flux1_dev.py，见 GOTCHAS #43）。
+    guidance: float = 0.0
     image_formats: list[str] = Field(default_factory=lambda: ["png"])
     license: str = ""
     tags: list[str] = Field(default_factory=list)
@@ -673,20 +682,25 @@ def resolve_engine_load_options(
     ``verify_weight_before_load``（``native/engine.py`` 的 load 流程），
     混入非路径键会让权重完整性校验误把它当文件去验。故拆成独立函数、独立传参。
 
-    支持两个键（缺省时返回空字典，行为与历史完全一致）：
+    支持以下键（缺省时返回空字典或单元素，行为与历史完全一致）：
         - ``unet_key_prefix``: ``ModelPaths.key_prefix``（UNET 键统一前缀，加载时剥掉）
         - ``text_encoder_clip_type``: ``ModelPaths.clip_type``（CLIP 类型名，如 ``krea2``）
+        - ``text_encoder_paths``: 文本编码器的**全部**权重绝对路径（主 + 附加）。
+          多 TE 架构（FLUX.1-dev 的 t5xxl + clip_l）需要一次 ``load_clip`` 传多个文件，
+          见 GOTCHAS #43。只有声明了 ``sub_paths`` 时才补这一项。
+        - ``guidance``: FLUX 系的 classifier-free guidance 数值（与 cfg 是两套参数），
+          非空时注入 cond 字典的 ``guidance`` 键，见 GOTCHAS #43。
 
     Args:
         engine: 引擎配置
-        config: ModelsConfig 实例（本函数不改动它，保留参数以便未来扩展基于路径的解析）
-        project_root: 项目根目录（同上，仅保持与 resolve_engine_model_paths 签名一致）
+        config: ModelsConfig 实例
+        project_root: 项目根目录
 
     Returns:
-        {"unet_key_prefix": str, "text_encoder_clip_type": str} 的子集
+        加载选项字典（``text_encoder_paths`` 的值为 ``list[str]``，故返回类型为
+        ``dict[str, Any]``；其余键均为 ``str``）
     """
-    del config, project_root  # 当前实现不依赖路径解析，保留形参以保证调用方签名一致
-    result: dict[str, str] = {}
+    result: dict[str, Any] = {}
     unet = getattr(engine, "unet", None)
     key_prefix = getattr(unet, "key_prefix", "") or ""
     if key_prefix:
@@ -695,7 +709,40 @@ def resolve_engine_load_options(
     clip_type = getattr(te, "clip_type", "") or ""
     if clip_type:
         result["text_encoder_clip_type"] = clip_type
+
+    if te is not None and getattr(te, "sub_paths", None):
+        extras = resolve_engine_extra_model_paths(te, config, project_root)
+        primary = resolve_model_path(te, config, project_root)
+        result["text_encoder_paths"] = [primary, *extras]
+
+    guidance = getattr(engine, "guidance", 0.0) or 0.0
+    if guidance > 0:
+        result["guidance"] = float(guidance)
+
+    # 形参保留只为签名与 resolve_engine_model_paths 一致；放在最后 del，
+    # 否则多 TE 那段（要走 resolve_model_path）会踩 UnboundLocalError（2026-10-02 实证）。
+    del config, project_root
     return result
+
+
+def resolve_engine_extra_model_paths(
+    model_paths: ModelPaths,
+    config: ModelsConfig,
+    project_root: str | Path,
+) -> list[str]:
+    """解析某个角色（如 text_encoder）的**附加**权重绝对路径（``ModelPaths.sub_paths``）。
+
+    附加项未写 ``sub_dir`` 时沿用主 ``sub_dir``，写了自己的则用自己那份（本机 clip_l
+    挂在 ``models/clip/`` 下，正是靠这条与 t5xxl 的 ``text_encoders/`` 区分开）。
+    """
+    extra: list[str] = []
+    for sub in model_paths.sub_paths or []:
+        if not sub.sub_path:
+            continue
+        if not sub.sub_dir:
+            sub = sub.model_copy(update={"sub_dir": model_paths.sub_dir})
+        extra.append(resolve_model_path(sub, config, project_root))
+    return extra
 
 
 def scan_resource_files(

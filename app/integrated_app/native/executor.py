@@ -163,6 +163,10 @@ def _load_models(
         - ``unet``: 扩散主干权重
         - ``unet_key_prefix``: UNET 权重键的统一前缀（非空时先剥前缀再加载，Krea2 AIO 需要）
         - ``text_encoder_clip_type``: CLIP 类型名（如 ``krea2``，内部映射为 ``CLIPType.KREA2`` 枚举）
+        - ``text_encoder_paths``: 文本编码器的**全部**权重绝对路径（主 TE + 附加 TE，
+          如 FLUX.1-dev 的 t5xxl + clip_l，见 GOTCHAS #43）；缺省即回退到 ``text_encoder``
+        - ``guidance``: FLUX 系 guidance 数值（``model_base.Flux.concat_cond`` 读 cond 字典里的
+          这个键，与 cfg 是两套参数），由 :func:`_encode_conditioning` 注入
 
     Raises:
         RuntimeError: 缺少必需模型路径或模型加载失败
@@ -186,8 +190,10 @@ def _load_models(
     model_sampling = model.get_model_object("model_sampling")
     latent_format = getattr(model, "latent_format", None)
 
-    # 加载 clip（Z-Image 用 qwen_image 类型，load_clip 自动检测；Krea2 需显式 clip_type=krea2）
-    clip = _load_text_encoder([te_path], model_paths.get("text_encoder_clip_type"))
+    # 加载 clip（Z-Image 用 qwen_image 类型，load_clip 自动检测；Krea2 需显式 clip_type=krea2；
+    # FLUX.1-dev 要一次传 t5xxl + clip_l 两个文件，见 GOTCHAS #43）
+    te_list = model_paths.get("text_encoder_paths") or ([te_path] if te_path else [])
+    clip = _load_text_encoder(list(te_list), model_paths.get("text_encoder_clip_type"))
 
     # 加载 vae
     vae_sd = comfy_rt.utils.load_torch_file(vae_path)
@@ -203,14 +209,30 @@ def _load_models(
     )
 
 
-def _encode_conditioning(clip: Any, text: str) -> list[Any]:
+def _encode_conditioning(clip: Any, text: str, guidance: float = 0.0) -> list[Any]:
     """用 CLIP 对文本做编码，返回 Comfy conditioning 列表。
 
     对齐 CLIPTextEncode 节点：``clip.tokenize(text)`` + ``encode_from_tokens_scheduled``。
     Z-Image tokenizer 已在 ``z_image.tokenize_with_weights`` 内置 llama_template。
+
+    ``guidance`` > 0 时往每条 cond 的字典里注入 ``guidance`` 键（2026-10-02 FLUX 实证）。
+    FLUX 的 guidance **不在 cfg 通道上**——它是 ``model_base.Flux.concat_cond`` 的
+    ``kwargs.get("guidance", 3.5)``；上游由 comfy_extras 的 ``Guidance`` 节点写进
+    cond 字典，原生 executor 没有该节点，故这里手工注入。传 0（缺省）时行为与历史一致。
     """
     tokens = clip.tokenize(text)
-    return clip.encode_from_tokens_scheduled(tokens)
+    conds = clip.encode_from_tokens_scheduled(tokens)
+    if guidance <= 0:
+        return conds
+    import torch as _torch
+
+    guidance_t = _torch.FloatTensor([float(guidance)])
+    out = []
+    for c in conds:
+        d = dict(c[1])
+        d["guidance"] = guidance_t
+        out.append([c[0], d])
+    return out
 
 
 def _vae_decode(vae: Any, latent: torch.Tensor) -> torch.Tensor:
@@ -261,10 +283,13 @@ def txt2img(
 
     Args:
         config: 生图配置（prompt / steps / cfg / width / height / seed / batch_size）
-        model_paths: unet / text_encoder / vae 绝对路径映射；
-            另可带可选键 ``unet_key_prefix``（UNET 键前缀，Krea2 AIO 用）与
-            ``text_encoder_clip_type``（CLIP 类型名，Krea2 取 ``krea2``）。
-            两者缺省时行为与历史完全一致（见 GOTCHAS #41/42）。
+        model_paths: unet / text_encoder / vae 绝对路径映射；另外几个可选键：
+            ``unet_key_prefix``（UNET 键前缀，Krea2 AIO 用）、
+            ``text_encoder_clip_type``（CLIP 类型名，Krea2 取 ``krea2``）、
+            ``text_encoder_paths``（多 TE 架构的全部权重绝对路径，FLUX.1-dev 的
+            t5xxl + clip_l；单 TE 时缺省即回退到 ``text_encoder`` 那一项，见 GOTCHAS #43）、
+            ``guidance``（FLUX 系 guidance 数值，与 cfg 是两套参数）。
+            缺省时行为与历史完全一致（见 GOTCHAS #41/42/43）。
         on_progress: 进度回调 (pct, phase, extra)
         comfy_root: Comfy 源码根目录
         cancel_flag: 长度 1 列表，采样中置 True 抛 CancelledError 取消
@@ -279,11 +304,12 @@ def txt2img(
     import comfy.samplers  # noqa: F401  # 复用已装载的本地 Comfy 源码
 
     try:
-        # 1. CLIP 编码
+        # 1. CLIP 编码（FLUX 走双 TE，权重清单见 model_paths["text_encoder_paths"]）
         if on_progress:
             on_progress(10, "Encoding prompts...", {})
-        positive = _encode_conditioning(models.clip, config.positive_prompt)
-        negative = _encode_conditioning(models.clip, config.negative_prompt)
+        guidance = float(model_paths.get("guidance") or 0.0)
+        positive = _encode_conditioning(models.clip, config.positive_prompt, guidance)
+        negative = _encode_conditioning(models.clip, config.negative_prompt, guidance)
 
         # 2. 构造空 latent 与噪声（通道数/下采样比按引擎 config 下发，否则查模型，最后回退 Z-Image 默认 16/8）
         batch = max(1, config.batch_size)

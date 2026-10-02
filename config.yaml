@@ -331,6 +331,78 @@ models:
       weight_version: ''
       training_data_source: ''
       compatibility_matrix: {}
+    flux1_dev_native:
+      name: flux1_dev_native
+      display_name: FLUX.1-dev（原生文生图）
+      display_name_en: FLUX.1-dev (Native txt2img)
+      backend: native
+      workflow_file: ''
+      parameter_schema: ''
+      comfy_source_dir: comfy_kernel
+      custom_nodes_dir: ''
+      seedvr2_source_dir: ''
+      text_encoder:
+        sub_dir: text_encoders
+        # GOTCHAS（2026-10-02 实证）：FLUX.1-dev 是**双文本编码器**架构，t5xxl（220 键、
+        # fp8_e4m3fn）与 clip_l（196 键、fp16）必须**一次 load_clip 同时传两个文件**，
+        # 少传任一个前向会报 t5 维数不符。clip_l 在本机 ComfyUI 库挂在 models/clip/ 下、
+        # 与 t5xxl 的 models/text_encoders/ 不同目录，故用 sub_paths 让附加项自带 sub_dir。
+        sub_path: FLUX-1-dev/t5xxl_fp8_e4m3fn.safetensors
+        clip_type: flux
+        sub_paths:
+        - sub_dir: clip
+          sub_path: FLUX.1-dev/clip_l.safetensors
+      unet:
+        sub_dir: unet
+        # GOTCHAS（2026-10-02 实证）：本机 unet/FLUX-1-dev 下共 4 份 ~11.9GB，选
+        # fluxNSFWUNLOCKED —— fp8 E4M3 精度档位正常，且键带 `model.diffusion_model.`
+        # 前缀、可直接复用剥前缀逻辑；Flux-Capacity-NSFW-V2-fp8 是 E5M2（尾数仅 3 位、
+        # 精度更差），另两份（pornworks*）是裸键无前缀。roadmap 曾把该目录标为
+        # 「未开工/权重阻断」，实际权重一直都在本机库里，只是没建 junction + 没写 config。
+        sub_path: FLUX-1-dev/fluxNSFWUNLOCKED.safetensors
+        key_prefix: model.diffusion_model.
+      vae:
+        sub_dir: vae
+        # 注意 junction 名是 `FLUX.1-dev`（点号）不是 `FLUX-1-dev`（连字符）。
+        # GOTCHAS #43：拼错在语法上完全合法、resolve 也照样拼出绝对路径，直到
+        # load 时 verify_weight_before_load 才发现文件不存在——必须靠 preflight /
+        # resolve 探针逐条 exists 兜住。
+        sub_path: FLUX.1-dev(Z-image(turbo))/ae.safetensors
+      model_id: ''
+      local_model_dir: ''
+      vram_gb: 12.0
+      ram_gb: 32.0
+      default_precision: fp8
+      fallback_precision: fp8
+      supported_features:
+      - txt2img
+      default_width: 1024
+      default_height: 1024
+      # GOTCHAS（2026-10-02 实证）：latent_formats.Flux 继承 SD3 —— latent_channels=16、
+      # 空间下采样 8；且 FLUX 是 2D 图像模型，latent 是 **4D [1,16,H/8,W/8]**，
+      # 与 Krea2/Wan21 的 5D [1,16,1,H/8,W/8] 不同（造 5D 会被当成时间帧）。
+      latent_channels: 16
+      latent_downscale: 8
+      # FLUX 的 guidance 与 cfg 是**两套**参数：guidance 由 model_base.Flux.concat_cond
+      # 从 cond 字典的 guidance 键取（缺省 3.5），cfg 只管双分支权重。原生 executor 里
+      # 没有 comfy_extras 的 Guidance 节点，故由 _encode_conditioning 手工注入。
+      guidance: 3.5
+      # 2026-10-02 preflight 实证回填：256²/4 步 euler+simple / guidance 3.5 端到端出图
+      # （outputs/_preflight_flux1_dev/flux1_euler_simple.png，猫趴木桌，与 prompt 吻合）。
+      # 引擎默认 1024² 尚未实跑（与 qwen_image/krea2 同口径）。
+      sampler: euler
+      scheduler: simple
+      image_formats:
+      - png
+      license: Apache-2.0
+      tags:
+      - txt2img
+      - native
+      - flux
+      weight_sha256: ''
+      weight_version: ''
+      training_data_source: ''
+      compatibility_matrix: {}
 inference:
   default_steps: 10
   default_cfg: 1.0

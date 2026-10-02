@@ -91,3 +91,37 @@
 - **shift 不用手工设**：`Krea2.sampling_settings = {"multiplier": 1.0, "shift": 1.15}`，`comfy/model_sampling.py` 构造时自己读，preflight 只打印 `model_sampling.shift` 核对即可。
 - **可复用心法**：这条与 #39 同源——**先跑加载探针（只 import + load + 打印形状，几十秒出结论），再改 config**。Krea2 这一轮 5 类坑（fp8 坏文件 / clip_type 枚举 / inference_mode / 4D latent / 5D 收尾）全是在探针阶段暴露的，没有一颗流进 config。
 - 首次发现：2026-10-02（P2-multi-engine D 项 Krea2 preflight 首跑 + 多轮受控对照实验）
+
+| 43 | **FLUX.1-dev 是双文本编码器 + guidance 与 cfg 是两套参数 + latent 是 4D（三处都得手工适配，缺一不动图）** | `flux1_dev_native` 接入，preflight `scripts/preflight_flux1_dev.py` 跑加载探针 | ① 只传 t5xxl 一个 TE 文件 → 前向报 t5 维数不符（clip_l 的 768 维 concat 缺失）；FLUX 必须 `comfy.sd.load_clip([t5xxl, clip_l], clip_type=CLIPType.FLUX)` **一次传两个文件**。且 clip_l 在本机挂在 `models/clip/FLUX.1-dev/`、t5xxl 挂在 `models/text_encoders/FLUX-1-dev/`，**不同 sub_dir**，现有 schema 的「一个角色一个 sub_dir」表达不了 → 新增 `ModelPaths.sub_paths`（附加权重，各带自己的 sub_dir，留空则沿用主 sub_dir）。② `guidance` 与 `cfg` 是**两套**参数：guidance 走 `model_base.Flux.concat_cond` 里的 `kwargs.get("guidance", 3.5)`，上游由 comfy_extras 的 `Guidance` 节点写进 cond 字典；原生 executor 没有该节点 → 必须手工往 `encode_from_tokens_scheduled` 返回的每条 cond 字典注入 `guidance` tensor，否则静默走内建 3.5、图能出但参数不生效（排查极难）。③ latent 口径与 Krea2 相反：`supported_models.Flux` 的 `latent_format = latent_formats.Flux(SD3)`，`latent_channels=16`、空间下采样 8，且 FLUX 是 2D 图像模型 → latent 是 **4D `[1,16,H/8,W/8]`**；照 Krea2 的 5D `[1,16,1,H/8,W/8]` 造会多一个无意义时间维 | ① config 给 text_encoder 挂 `sub_paths: [{sub_dir: clip, sub_path: FLUX.1-dev/clip_l.safetensors}]`，`resolve_engine_extra_model_paths` 解析成绝对路径，executor `_load_models` 用 `text_encoder_paths`（缺省回落到单 `text_encoder`，历史引擎行为零变化）；② `EngineConfig.guidance` 新增（0=不注入，沿用内建 3.5），executor `_encode_conditioning` 在 `guidance>0` 时往 cond 字典写 `guidance`；③ latent 按 4D 构造，config 写 `latent_channels: 16` / `latent_downscale: 8`；④ 本机 `unet/FLUX-1-dev/` 下共 4 份 ~11.9GB，选 `fluxNSFWUNLOCKED`——fp8 **E4M3**（`Flux-Capacity-NSFW-V2-fp8` 是 E5M2，尾数仅 3 位精度更差）+ 键带 `model.diffusion_model.` 前缀（另两份 `pornworks*` 是裸键无前缀），前缀复用 Krea2 #41 那套剥前缀逻辑。**注意 `model_sampling` 日志显示 `shift=1.15` 是 `ModelSamplingFlux` 默认值**（`Flux.sampling_settings={}`），不需要手工设 | 2026-10-02（P2-multi-engine D 项：256²/4 步 euler+simple / guidance 3.5 端到端出图，`decoded (1,256,256,3)` 已目检；双 TE、guidance 注入、4D latent 三处均写进 `tests/native/test_flux1_dev_native.py` 18 例） |
+
+### 43.1 拼写级的坑：junction 名 `FLUX.1-dev`（点号）被写成 `FLUX-1-dev`（连字符）——语法合法、直到 load 才炸
+
+- **触发场景**：把 `flux1_dev_native` 写进 `config.yaml`，VAE 的 `sub_path` 手抄成 `FLUX-1-dev(Z-image(turbo))/ae.safetensors`。
+- **现象**：`AppConfig.from_yaml` 解析**完全成功**、`resolve_engine_model_paths` 也照样拼出一条绝对路径（`config_models.py` 只拼路径、**不验存在**，校验靠 load 时的 `verify_weight_before_load`），一直到 preflight/load 才报文件不存在。
+- **差点漏掉的原因**：`scripts/preflight_flux1_dev.py` 里的 VAE 常量当时写的是**连字符**版本，却因命令行传了 `--vae` 覆盖而侥幸出图，掩盖了错误——**命令行参数绕过会让脚本自己的默认值失去自证能力**。
+- **正确做法**：① config 落笔后必须跑**解析探针**（照 `resolve_engine_model_paths` 逐条 `os.path.exists` 打印，一把 `config_models.py` 的 role 全过一遍），不能只依赖 preflight 成功；② preflight 成功 ≠ 常量对，成功日志里要能看到 `exists=True` 的路径；③ 测试里钉死写法（`test_flux1_dev_junction_name_is_dot_not_hyphen`），防下次再抄错。
+
+### 43.2 `del config, project_root` 踩出的 `UnboundLocalError`
+
+- **触发场景**：在 `resolve_engine_load_options` 里新增「解析附加 TE 路径」（要走 `resolve_model_path`），但函数在开头有一句 `del config, project_root`，`del` 之后再用这两个形参就是 `UnboundLocalError: cannot access local variable 'config'`。
+- **根因**：`del x` 把局部变量标记成「未绑定」，之后的引用直接 NameError，属于**编译期就能查出来**的低级错误，可惜 mypy/ruff 都不报（它是合法的 Python）。
+- **正确做法**：把 `del config, project_root` 挪到**函数末尾**（所有使用之后）再删，既保留"当前实现不依赖它"的语义，又不挡后面的扩展。已写进该函数的行内注释。
+
+### 43.3 roadmap 的「未开工 / 权重阻断」第二次被推翻（可复用：加载探针先行）
+
+- `flux1_dev_native` 在 `docs/roadmap/P2-multi-engine.md` 里原本标 ⚪（未开工）、权重栏写「权重阻断」。实测：**权重一直在本机 ComfyUI 库里**（`unet/FLUX-1-dev` 4 份 + `text_encoders/FLUX-1-dev/t5xxl_fp8_e4m3fn` + `clip/FLUX.1-dev/clip_l` + `vae/FLUX.1-dev(Z-image(turbo))/ae` 三件套齐全），缺的只是 junction + config。
+- **可复用心法（第二次验证成立，非一次巧合）**：下场接入引擎前**先跑加载探针**（只 import + load + 打印形状/通道/shift，几十秒出结论），**再动 config**；roadmap 里任何"权重阻断/未开工"都应视为**待证伪的文档复述**，不是事实。#39、#41、#43 三轮连续推翻同一类结论。
+- **口径不抬高**：256²/4 步是**实证**出图；引擎默认的 1024² **尚未实跑**（与 `qwen_image_native`、`krea2_turbo_native` 同一口径），文档里不许把前者冒充后者。
+
+| 44 | **完整性清单要在「所有格式化/静态检查跑完之后」再重签，否则整轮测试被自己的门禁打红** | 改了 pinned 的 `config_models.py`，按流程重签清单并复跑门禁（全 PASS），然后才跑 `ruff format` 与全量 pytest | 全量 pytest 冒出 27 failures + 144 errors，一大半挂载同一种错：`RuntimeError: 核心模块完整性校验失败（enforce 模式，拒绝启动）: config_models.py`——`tests/smoke`、`tests/observability`、`tests/integration` 的 fixture 在 setup 阶段就 enforce 校验，**进程根本没进到用例体**。根因不是测试退步，而是**重签之后又动了文件**：那轮顺序是「改代码 → 生成+签名 → check PASS → ruff 报错 → 改注解 → `ruff format` 又重写一遍（2 files reformatted）」，格式化后的字节与刚签的哈希不匹配 | ① 固定顺序：**改代码 → ruff check/format → mypy → 其它自检门禁 → 生成清单 → 签名 → 复跑 check_integrity_manifest → 全量 pytest → 提交**；签名必须是「最后一次改文件」之前的动作，签名后**禁止**再动 pinned 文件；② 若必须先改，就**重签**再跑测试，别拿「门禁单独跑过」当全量通过；③ 判全量结果必须解析 `--junitxml`，因为 safe-delete 守卫会让进程 `rc=1`（假红），而真正的失败信号在 XML 里；④ 同一轮里 `format` 报告 `X files reformatted` 时要立刻意识到「我刚签过名」。**这是本轮第三次栽在同一个家族上（pinned 文件改动 → 清单失配），前两次是漏改与改后置顶** | 2026-10-02（`flux1_dev_native` 收口轮：全量 1359 例 → 修正顺序后重跑复验） |
+
+## 坑 #43:FLUX.1-dev 双 TE + guidance 注入 + 4D latent(2026-10-02)
+
+- **触发场景**：推进 P2-multi-engine D 项最后一个引擎 `flux1_dev_native`；先建 3 处 junction（`unet/FLUX-1-dev`、`text_encoders/FLUX-1-dev`、`clip/FLUX.1-dev`）指向本机 ComfyUI 模型库，再写 `scripts/preflight_flux1_dev.py` 跑加载探针。
+- **三处必须手工适配的架构事实**（全部经 preflight 日志 + 源码交叉核对）：
+  1. **双 TE**：`comfy/sd.py` 里 `load_clip` 命中 `clip_type == CLIPType.FLUX`（枚举值 6，`sd.py:1573`）时构造 `comfy.text_encoders.flux.flux_clip(**t5xxl_detect(..., "text_encoders.t5xxl.transformer."))` + `FluxTokenizer`——它**同时吃 t5xxl 与 clip_l 两堆键**，所以必须 `[t5xxl, clip_l]` 一次传；而两者在本机不同目录，靠新增的 `ModelPaths.sub_paths` 表达（#43 表格 ①）。
+  2. **guidance ≠ cfg**：`model_base.Flux.concat_cond` 从 cond 字典取 `guidance`，`Guidance` 节点在 comfy_extras、原生 executor 没有 → `_encode_conditioning` 手工注入。
+  3. **latent 4D**：`latent_formats.Flux(SD3)` 的 `latent_channels=16`、`scale_factor=0.3611`、`shift_factor=0.1159`；FLUX 无时间维，preflight 日志实测 `sampled (1,16,32,32) → decoded (1,256,256,3)`。与 Krea2/Wan21 的 5D 形成对照表：**图像族（FLUX/SD3/Qwen-Image）4D，视频/ Wan 族 5D**。
+- **接线全部保持向后兼容**：`sub_paths`、`guidance`（0=不注入）、`text_encoder_paths`（缺省回落单 TE）三者缺省时历史引擎返回值与改动前**逐字相同**（`tests/native/test_flux1_dev_native.py` 里有对应的空选项断言）。
+- **测试做了变异验证**：分别把「`te_list` 退化为单 TE」「`guidance` 注入短路」「`resolve_engine_load_options` 不补 `text_encoder_paths`」三处改坏，测试**各自**如期变红（rc=1），确认 18 例不是空断言。
+- **首次发现**：2026-10-02（P2-multi-engine D 项 FLUX preflight 实跑：256²/4 步 euler+simple，采样 15.3s，`outputs/_preflight_flux1_dev/flux1_euler_simple.png` 目检为清晰真实感的橘白猫趴木桌，与 prompt `a cat sitting on a wooden table` 吻合）

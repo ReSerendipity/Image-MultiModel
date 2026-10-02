@@ -46,7 +46,7 @@
 | Z_image | `z_image_native` | 需实测 | 待实测 |
 | Qwen-Image 2.1 基座 | ✅ `qwen_image_native`（2026-10-02 已实证出图） | steps=8/cfg=1 + latent 64/16 | 512²/8 步采样 18.5s 可行；1024²（引擎默认）未实跑 |
 | Flux.2 Klein | ✅ `flux2_klein_native`（已验收） | 9B fp8 + qwen3_8b TE | 已验证可行（euler/simple） |
-| flux.1-dev | ⚪ `flux1_dev_native`（未开工） | 12B fp8 | ⚠️ **权重阻断**：本地库无权重，架构未实证 |
+| flux.1-dev | ✅ `flux1_dev_native`（2026-10-02 已实证出图） | 12B fp8 + **双 TE**（t5xxl + clip_l）+ **guidance 3.5** | 256²/4 步 euler+simple 可行；1024²（引擎默认）未实跑 |
 | krea2_turbo | ✅ `krea2_turbo_native`（2026-10-02 已实证出图） | turbo 低步数 + latent 16/Wan21 空间 8 | 512²/4 步 euler+simple 可行；1024²（引擎默认）未实跑 |
 
 ## 接入步骤（每新增一个引擎）
@@ -90,13 +90,22 @@
   - **落地**：`config.yaml` 的 `unet.sub_path` 改为真实文件、回填 `sampler=euler` / `scheduler=simple`；回归测试 `tests/native/test_qwen_image_native.py` 由「离线阻断断言」反转为「unet 指向真实文件 + 与 edit 共用同一份 + sampler/scheduler 与 preflight COMBOS 首项同步」。
   - **观察（未改代码）**：preflight 日志里 `latent_format = NoneType`，即 Qwen-Image 的 model 对象不挂 `latent_format` 属性，latent 尺寸实际由 `config.yaml` 的 `latent_channels=64` / `latent_downscale=16` 驱动（与实测一致）。**改这两个 config 值前必须重跑 preflight**，否则会静默按旧尺寸造 latent。
 
-- ✅ **`krea2_turbo_native` 已于 2026-10-02 实证出图闭环（2026-10-01 评估时的「权重阻断」结论同样被推翻）**：`config.yaml` 已注册 `krea2_turbo_native`（`backend: native` / `supported_features: [txt2img]` / `unet.key_prefix: model.diffusion_model.` / `text_encoder.clip_type: krea2` / `latent_channels: 16` / `latent_downscale: 8` / `sampler=euler` / `scheduler=simple`）；新增 `scripts/preflight_krea2_turbo.py` 与回归测试 `tests/native/test_krea2_turbo_native.py`（17 例：config 结构/权重存在/两处新字段/sampler 与 preflight COMBOS 首项同步、加载选项解析不污染路径字典、executor 两处加载定制的委托行为、engine→executor 合并传参的变异可测断言）。**未开工的只剩 `flux1_dev_native`**。
+- ✅ **`krea2_turbo_native` 已于 2026-10-02 实证出图闭环（2026-10-01 评估时的「权重阻断」结论同样被推翻）**：`config.yaml` 已注册 `krea2_turbo_native`（`backend: native` / `supported_features: [txt2img]` / `unet.key_prefix: model.diffusion_model.` / `text_encoder.clip_type: krea2` / `latent_channels: 16` / `latent_downscale: 8` / `sampler=euler` / `scheduler=simple`）；新增 `scripts/preflight_krea2_turbo.py` 与回归测试 `tests/native/test_krea2_turbo_native.py`（17 例：config 结构/权重存在/两处新字段/sampler 与 preflight COMBOS 首项同步、加载选项解析不污染路径字典、executor 两处加载定制的委托行为、engine→executor 合并传参的变异可测断言）。
   推翻要点（详见 `docs/agents/GOTCHAS.md` #41/#42）：
   - **权重其实一直在本机**：`unet/Krea2-turbo/`、`text_encoders/Krea2/`、`vae/Qwen-image-2512-edit + Krea2/` 三处都在 ComfyUI 模型库里，只是本仓 `pretrained_models/` 没挂 junction、config 没写；上一版「权重阻断」是把 `pretrained_models/*` 下**已 junction 的三组**当成了全部。
   - **UNET 只能用 AIO 那份**：同目录 `krea2_turbo_fp8_scaled.safetensors` 被 safetensors rust 后端 0.8.0 拒绝（`file not fully covered`，多轮受控对照实验排除 junction/体积/头覆盖/量化元数据后判定为该文件 fp8 描述符问题）；AIO 那份走「`load_torch_file` → 剥 `model.diffusion_model.` 前缀 → `load_diffusion_model_state_dict`」（`load_diffusion_model` 无 prefix 参数）。
   - **TE 必须枚举、latent 必须 5D**：Krea2 的 TE 要 `CLIPType.KREA2` **枚举**（字符串 `"krea2"` 不等价 → 单层 2560 维 → 前向 30720 维报错）；latent 必须 `[1,16,1,H/8,W/8]`，4D 会被当 16 个时间帧产出 61 帧废图（已目检）。
   - **实证**：512²/4 步/euler+simple → `sampled (1,16,1,64,64)` → `decoded (1,512,512,3)` → 落盘 `outputs/_preflight_krea2/krea2_euler_simple.png`（黑白猫端坐木桌，与 prompt `a cat sitting on a wooden table` 吻合，已人工目检）。
-- ⚪ **`flux1_dev_native` 仍未开工（2026-10-01 评估 → 2026-10-02 复核仍有余量）**：`unet/FLUX-1-dev/` 下有 4 份 ~11.9 GB 权重（多 NSFW 命名），但架构（FLUX 族的 `load_diffusion_model` 直接吃裸 DiT 键、TE 为 CLIP+T5、latent 16/8）**尚未跑加载探针实证**，故仍按未开工计、不臆造参数。按 Klein 流程（junction→config→executor KSampler 映射→preflight→tests）接入，下场接入前**先跑加载探针**再动 config，别照抄「先信文档阻断结论 → 被实测推翻」的绕路。
+- ✅ **`flux1_dev_native` 已于 2026-10-02 实证出图闭环（2026-10-01 评估时的「权重阻断」是第三次被推翻）**：`config.yaml` 已注册 `flux1_dev_native`，且为它新增了两处**向后兼容**的 schema 能力：
+  - `ModelPaths.sub_paths`（同角色的附加权重，各带自己的 `sub_dir`）——FLUX 的 clip_l 挂在 `models/clip/FLUX.1-dev/`、t5xxl 挂在 `models/text_encoders/FLUX-1-dev/`，现有「一角色一 sub_dir」表达不了；
+  - `EngineConfig.guidance`（FLUX 系 guidance，0 = 不注入，沿用 `model_base.Flux.concat_cond` 内建 3.5）。
+  新增 `scripts/preflight_flux1_dev.py` 与回归测试 `tests/native/test_flux1_dev_native.py`（18 例，含三处接线的**变异验证**）。**至此 P2-multi-engine D 项目标引擎全部实证收口，无未开工项。**
+  推翻要点（详见 `docs/agents/GOTCHAS.md` #43 及 43.1/43.2/43.3）：
+  - **权重一直在本机**：`unet/FLUX-1-dev/` 4 份 + `text_encoders/FLUX-1-dev/t5xxl_fp8_e4m3fn.safetensors` + `clip/FLUX.1-dev/clip_l.safetensors` + `vae/FLUX.1-dev(Z-image(turbo))/ae.safetensors` 全在 ComfyUI 模型库，只是没建 junction、没写 config。
+  - **选 `fluxNSFWUNLOCKED`**：fp8 **E4M3**（`Flux-Capacity-NSFW-V2-fp8` 是 E5M2 精度更差），且键带 `model.diffusion_model.` 前缀可直接复用剥前缀逻辑；另两份 `pornworks*` 是裸键。
+  - **三处架构适配**（缺一不动图）：双 TE 一次 `load_clip` 传两个文件 / guidance 手工注入 cond 字典（executor 无 comfy_extras `Guidance` 节点）/ latent 是 **4D `[1,16,H/8,W/8]`**（`latent_formats.Flux` 继承 SD3，与 Krea2 的 5D 相反）。
+  - **实证**：256²/4 步/euler+simple/guidance 3.5 → 采样 `(1,16,32,32)` 15.3s → `decoded (1,256,256,3)` → 落盘 `outputs/_preflight_flux1_dev/flux1_euler_simple.png`（橘白猫趴木桌，与 prompt `a cat sitting on a wooden table` 吻合，已人工目检）。
+  - **拼写级坑**：VAE junction 名是 `FLUX.1-dev`（点号）不是 `FLUX-1-dev`；写错在 YAML 里语法合法、`resolve` 也照样拼路径，直到 load 才炸——已靠解析探针逐条 `exists` 兜住，并写进测试。
 - ⚠️ widget 双处同步坑：aki-v3 工作流 JSON 的 `widgets_values`（positional）与 `widgets_values_named` 可能不同步，子图容器与内部还可能三处冲突 → **移植时一律读容器 positional 并实机验证**（详见蓝图「已知坑」）。
 - 多引擎 UI 过滤：README 已移除「全部 / Native」过滤项、简化为直接列引擎；新增引擎后需确认前端引擎列表渲染无回归。
 - 无独立阻塞，架构层已支持。
