@@ -1,18 +1,21 @@
-"""qwen_image_native 接入脚手架验证（P2-multi-engine D 项，权重阻断待补）。
+"""qwen_image_native 接入验证（P2-multi-engine D 项，2026-10-02 已实证出图）。
 
 覆盖（全部离线可跑，不依赖 torch/comfy/权重）：
 - config.yaml 中 qwen_image_native 引擎块结构正确
-  （backend=native / 声明 txt2img 能力 / latent 64x16 / 基座 unet 子路径已声明）
+  （backend=native / 声明 txt2img 能力 / latent 64x16 / unet 指向真实存在的文件）
 - model_registry 对 native backend（无 role）正确分发 NativeEngine
-- 离线权重阻断：本地基座 unet 文件不存在（preflight 将退出码 2，不静默降级）
+- unet 指向真实文件、且与 edit 引擎共用同一份（架构实证）
+- config 的 sampler/scheduler 与 preflight 候选表首项同步（防两处漂移）
 
-真实前向（comfy 加载 Qwen-Image 基座 UNet + 采样出图）需本地基座权重，
-由 scripts/preflight_qwen_image.py 在权重就位后实证，本测试不覆盖（离线）。
+真实前向由 `scripts/preflight_qwen_image.py` 实证（2026-10-02：
+512²/8 步/euler+simple 采样 18.5s，VAE 解码落盘，出图与 prompt 吻合），
+本测试不加载权重，只锁住「不依赖权重的接线事实」。
 """
 
 from __future__ import annotations
 
 import os
+import re
 
 import yaml
 
@@ -35,8 +38,8 @@ def test_qwen_image_native_config_well_formed() -> None:
     assert "txt2img" in feats, "qwen_image_native 必须声明 txt2img 能力（NativeEngine 能力守卫依赖此）"
     assert cfg.get("latent_channels") == 64
     assert cfg.get("latent_downscale") == 16
-    # 基座 unet 子路径已声明（即便权重离线缺失，配置结构应完整）
-    assert (cfg.get("unet") or {}).get("sub_path") == ("Qwen-Image-2.1/qwen_image_2.1_base_int8_convrot.safetensors")
+    # unet 子路径指向本机真实文件（2026-10-02 实证：与 edit 共用同一份 UNET）
+    assert (cfg.get("unet") or {}).get("sub_path") == ("Qwen-Image-2.1/qwen_image_2.1_int8_convrot.safetensors")
 
 
 def test_registry_dispatches_native_engine_for_qwen_image(monkeypatch) -> None:
@@ -53,10 +56,42 @@ def test_registry_dispatches_native_engine_for_qwen_image(monkeypatch) -> None:
     assert isinstance(eng, NativeEngine)
 
 
-def test_qwen_image_native_base_unet_offline_blocked() -> None:
-    """离线阻断断言：本地基座 unet 文件不存在，preflight 应退出码 2（不静默降级）。"""
+def test_qwen_image_native_unet_points_at_real_file() -> None:
+    """权重就位断言（2026-10-02 反转为实证路径）。
+
+    原语义是「本地无基座 unet ⇒ 离线阻断」。实测 `comfy/ldm/qwen_image21/model.py` 的
+    ``QwenImage21Transformer2DModel.forward(..., ref_latents=None, image_slots=None)``
+    里参考图 latent 是**可选**的——**同一份 UNET 既做 txt2img 也做 edit**，本机
+    `qwen_image_2.1_int8_convrot.safetensors` 因此可直接文生图（已实跑出图：512²/8 步
+    euler+simple）。故断言改为「config 指向的文件必须真实存在」。
+    """
     cfg = _load_cfg()
     sub_path = cfg["unet"]["sub_path"]
     sub_dir = cfg["unet"]["sub_dir"]
     abs_path = os.path.abspath(os.path.join(REPO_ROOT, "pretrained_models", sub_dir, sub_path))
-    assert not os.path.isfile(abs_path), f"本地库已含基座 unet，应改走 preflight 实证路径而非离线阻断：{abs_path}"
+    assert os.path.isfile(abs_path), f"config 指向的 UNET 不存在，preflight 会退化到离线阻断分支：{abs_path}"
+    # 必须与 edit 引擎指向**同一份**权重（本机仅此一份），否则这份测试就白测了
+    with open(os.path.join(REPO_ROOT, "config.yaml"), encoding="utf-8") as f:
+        edit_unet = yaml.safe_load(f)["models"]["engines"]["qwen_image_edit_native"]["unet"]["sub_path"]
+    assert sub_path == edit_unet, "txt2img 与 edit 共用同一份 UNET（架构实证），配置不应指向不同文件"
+
+
+def test_config_sampler_synced_with_preflight_candidates() -> None:
+    """config 的 sampler/scheduler 必须与 preflight 候选表首项（实测出图那组）一致。
+
+    防两处漂移：preflight 试出可用组合后会提示「回填到 config.yaml」，若有人改了
+    preflight 的 COMBOS 却忘同步 config（或反之），这组断言会红。
+    2026-10-02 实测：候选 (euler/simple, euler/beta, euler/sgm_uniform, dpmpp_2m/simple)
+    中 euler+simple 首个即出图（512²/8 步，18.5s）。
+    """
+    cfg = _load_cfg()
+    with open(os.path.join(REPO_ROOT, "scripts", "preflight_qwen_image.py"), encoding="utf-8") as fh:
+        src = fh.read()
+    m = re.search(r"COMBOS\s*=\s*\[(.*?)\]", src, re.S)
+    assert m, "preflight 的 COMBOS 候选表格式变了（本测试的正则需同步）"
+    first = re.search(r'\(\s*"([a-z0-9_]+)"\s*,\s*"([a-z0-9_]+)"\s*\)', m.group(1))
+    assert first, "COMBOS 首项形如 ('euler', 'simple')，正则需同步"
+    assert (cfg.get("sampler"), cfg.get("scheduler")) == (first.group(1), first.group(2)), (
+        f"config 的 sampler/scheduler 应为 preflight 实测首项 {first.groups()}，"
+        f"当前为 {(cfg.get('sampler'), cfg.get('scheduler'))}"
+    )

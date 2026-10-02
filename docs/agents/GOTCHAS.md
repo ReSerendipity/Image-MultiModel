@@ -65,4 +65,15 @@
 - **触发场景**：M1 返工收尾，跑 `py -3.12 scripts/preflight_qwen3vl.py --image comfy_kernel/input/example.png --max-new-tokens 8` 做真实前向闭环（需先腾出 ≥10 GiB 显存：精确 `taskkill //PID 41488 //F` 结束空闲的 ComfyUI，勿 `taskkill /IM python.exe`）。
 - **三条坑的次序**：#36 直接中断首跑（ImportError）→ 修完跑通但只能得到"跑通"不能证明"多模态" → #37 那条若当初信了 0.5s，会在更后面炸 OOM 且给不出定位。
 - **可复用的判定口径**：preflight 输出必须区分「接线已通」与「已实跑」——前者靠不加载权重的测试锁（如 `tests/native/test_vlm_engine_comfy_path.py` 5 例，CI 可跑），后者靠本机实机（权重 8.71 GiB，本机需 ≥10 GiB 空闲显存）；**两者都写进文档，不许用前者冒充后者**。
-- 首次发现：2026-10-02（M1 真实前向 preflight + 视觉分支对照实验）
+- 首次发现:2026-10-02(M1 真实前向 preflight + 视觉分支对照实验)
+
+| 39 | **把路线图里的「权重阻断」结论当成事实写进 config，会让 preflight 永久跑 SKIPPED** | 按 `P2-multi-engine.md`「本地库仅 edit 基座 unet，缺 txt2img 基座」接入 `qwen_image_native` 时 | 结论本身是**文档复述而非实证**：于是 `config.yaml` 的 `unet.sub_path` 被写成 `qwen_image_2.1_base_int8_convrot.safetensors`——本机根本没有这个文件，`preflight_qwen_image.py` 每次跑都走 `SKIPPED(2)` 分支，看起来像"等权重就位就能通"，实际是永远等不到。实证后推翻：同一份 UNET 就是能文生图 | ① 阻断结论要先**读架构代码**再信：本例看 `comfy/ldm/qwen_image21/model.py` 的 `forward(..., ref_latents=None, image_slots=None)`，参考图 latent 可选 ⇒ txt2img 与 edit 共用同一份权重；② 下场接入前先跑**加载探针**（只 import + load 三件套，几十秒出结论），别照抄"先写阻断再等"；③ 阻断断言在测试里要写成「先确认文件存在」的**正向**断言（如 `test_qwen_image_native_unet_points_at_real_file`），否则链断裂时反而"绿" | 2026-10-02（P2-multi-engine D 项实测：512²/8 步 euler+simple 真出图） |
+| 40 | **Qwen-Image 的 model 对象不挂 `latent_format` 属性：latent 尺寸实际由 config 兜底** | 看 `preflight_qwen_image.py` 日志打出 `latent_format = NoneType`、`latent_channels=? downscale=?` | 该分支 `getattr(lf, "latent_channels", 64)` 在 `lf=None` 时**恰好**返回默认值 64，于是日志显示"没取到"但结果是对的——极易被误判为"探测失败"而乱改代码；相反的风险更危险：真有人改 `config.yaml` 的 `latent_channels/latent_downscale` 时，preflight **不会**跟着变，仍按内建默认 64/16 造 latent，静默产出错尺寸 | latent 通道/下采样以 `config.yaml` 的 `qwen_image_native.latent_channels=64` / `.latent_downscale=16` 为唯一真值（与 edit 同架构实测一致）；**改这两个值必须重跑 `scripts/preflight_qwen_image.py`**，并在 preflight 里显式读 config 而非内建默认（待办，当前为内建默认值兜底） | 2026-10-02（preflight 实跑日志与 config 交叉核对） |
+
+## 坑 #39-40:qwen_image_native「权重阻断」被实证推翻 + latent 尺寸真值口径(2026-10-02)
+
+- **触发场景**：推进 P2-multi-engine D 项（`qwen_image_native` 接入），文档写"权重阻断"。
+- **结论反转**：本机 `pretrained_models/unet/Qwen-Image-2.1/` 只有一份 `qwen_image_2.1_int8_convrot.safetensors`（`qwen_image_edit_native` 也用它），但它**能直接文生图**——`QwenImage21Transformer2DModel` 的 `ref_latents`/`image_slots` 可选，`build_sequence` 在空时只处理文本 token。
+- **实证**：`scripts/preflight_qwen_image.py --unet/--te/--vae 显参 --w 512 --h 512 --steps 8` → 采样 `(1,64,32,32)` 18.5s → VAE 解码 `(1,512,512,4)` → 落盘 `outputs/_preflight_qwen_image/qwen_euler_simple.png`（**已人工目检**：灰白猫趴木桌，与 prompt `a cat sitting on a wooden table` 吻合）。
+- **注意**：跑通用 `--unet/--te/--vae` 显参先做实证，再回头改 `config.yaml`（先验证、后动笔）；此时 config 里那指向不存在文件的旧值是**修正**对象而非目标。
+- 首次发现：2026-10-02（P2-multi-engine D 项 preflight 实跑）

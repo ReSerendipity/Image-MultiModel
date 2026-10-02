@@ -44,7 +44,7 @@
 |---|---|---|---|
 | Z_image_turbo | ✅ 已实现 `z_image_turbo_native` | steps=8/cfg=1/euler | 已验证可行 |
 | Z_image | `z_image_native` | 需实测 | 待实测 |
-| Qwen-Image 2.1 基座 | 🟡 `qwen_image_native`（脚手架已就绪） | steps=8/cfg=1 + latent 64/16 | ⚠️ **权重阻断**：本地库仅 edit unet，缺 txt2img 基座 |
+| Qwen-Image 2.1 基座 | ✅ `qwen_image_native`（2026-10-02 已实证出图） | steps=8/cfg=1 + latent 64/16 | 512²/8 步采样 18.5s 可行；1024²（引擎默认）未实跑 |
 | Flux.2 Klein | ✅ `flux2_klein_native`（已验收） | 9B fp8 + qwen3_8b TE | 已验证可行（euler/simple） |
 | flux.1-dev | ⚪ `flux1_dev_native`（未开工） | 12B fp8 | ⚠️ **权重阻断**：本地库无权重，架构未实证 |
 | krea2_turbo | ⚪ `krea2_turbo_native`（未开工） | turbo 低步数 | ⚠️ **权重阻断**：本地库无权重，架构未实证 |
@@ -83,10 +83,15 @@
 
 - ✅ **产物元数据入库已 stat 磁盘（2026-10-01 冒烟发现 → 已由 `fb955b7` 修复，2026-10-01 复核关闭）**：`services/task_worker.py` 的 `_probe_output_metadata()` 真读磁盘尺寸/像素、`compute_file_sha256()` 落输出指纹，worker 落库时把非 0 的 `file_size / width / height / sha256` 写入 `history_db.outputs`（见 L200–219）。回归测试 `tests/test_output_metadata_probe.py` 锁定该行为（probe 真实尺寸 + worker 链路落库非 0）。本开放问题关闭。
 
-- 🟡 **`qwen_image_native` 脚手架已就绪，真实前向待基座权重（2026-10-01 收口）**：`config.yaml` 已注册 `qwen_image_native`（`backend: native` / `supported_features: [txt2img]` / `latent_channels: 64` / `latent_downscale: 16`，latent 沿用 Qwen-Image 2.1 edit 同架构实测值）；`model_registry` 对 native backend（无 role）正确分发 `NativeEngine`，**复用现有 txt2img 链路，无需新引擎类**；新增 `scripts/preflight_qwen_image.py`（Klein 实证法复用：真加载 UNet/TE/VAE + 试 (sampler,scheduler) 出图）与回归测试 `tests/native/test_qwen_image_native.py`（config 结构 + 分发 + 离线阻断断言）。
-  **权重阻断（离线）**：本地 `pretrained_models/unet/Qwen-Image-2.1/` 仅有 `qwen_image_2.1_int8_convrot.safetensors`（edit 基座），**无 txt2img 基座**，故 `qwen_image_native` 真实前向无法本地跑通。需下载 Qwen-Image 2.1 基座 txt2img checkpoint 到对应 `sub_dir`、确认 `config.yaml` 的 `qwen_image_native.unet.sub_path` 指向真实文件、`scripts/preflight_qwen_image.py` 跑通（确定 euler/simple 等可用组合）后，回填 `sampler`/`scheduler` 到 `config.yaml` 即视为接入完成。
+- ✅ **`qwen_image_native` 已于 2026-10-02 实证出图闭环（原「权重阻断」结论被实证推翻）**：`config.yaml` 已注册 `qwen_image_native`（`backend: native` / `supported_features: [txt2img]` / `latent_channels: 64` / `latent_downscale: 16`，latent 沿用 Qwen-Image 2.1 edit 同架构实测值）；`model_registry` 对 native backend（无 role）正确分发 `NativeEngine`，**复用现有 txt2img 链路，无需新引擎类**；新增 `scripts/preflight_qwen_image.py`（Klein 实证法复用：真加载 UNet/TE/VAE + 试 (sampler,scheduler) 出图）与回归测试 `tests/native/test_qwen_image_native.py`（config 结构 + 分发 + 离线阻断断言）。
+  **「权重阻断」是被实证推翻的旧结论（2026-10-02）**：旧判据是「本地库仅有 edit 基座 unet，缺 txt2img 基座」，从而把 `qwen_image_native.unet.sub_path` 写成一个**根本不存在的文件名** `qwen_image_2.1_base_int8_convrot.safetensors`，preflight 因此永久走 SKIPPED(2) 分支。实测订正：
+  - **架构层**：`comfy_kernel/comfy/ldm/qwen_image21/model.py` 的 `QwenImage21Transformer2DModel.forward(..., ref_latents=None, image_slots=None)` 中参考图 latent **可选**，`build_sequence` 在 `ref_latents` 为空时只处理文本 token —— **同一份 UNET 既做 txt2img 也做 edit**，`qwen_image_edit_native` 用的就是本机唯一那份 `qwen_image_2.1_int8_convrot.safetensors`，它可直接文生图，不需要额外下载。
+  - **实证**：`scripts/preflight_qwen_image.py --unet <真> --te <真> --vae <真> --w 512 --h 512 --steps 8` → `model_sampling=ModelSampling`、采样 `(1,64,32,32)` 18.5s、VAE 解码 `(1,512,512,4)`、落盘 `outputs/_preflight_qwen_image/qwen_euler_simple.png`（出图内容 = 灰白猫趴木桌，与 prompt `a cat sitting on a wooden table` 吻合，已人工目检）。
+  - **落地**：`config.yaml` 的 `unet.sub_path` 改为真实文件、回填 `sampler=euler` / `scheduler=simple`；回归测试 `tests/native/test_qwen_image_native.py` 由「离线阻断断言」反转为「unet 指向真实文件 + 与 edit 共用同一份 + sampler/scheduler 与 preflight COMBOS 首项同步」。
+  - **观察（未改代码）**：preflight 日志里 `latent_format = NoneType`，即 Qwen-Image 的 model 对象不挂 `latent_format` 属性，latent 尺寸实际由 `config.yaml` 的 `latent_channels=64` / `latent_downscale=16` 驱动（与实测一致）。**改这两个 config 值前必须重跑 preflight**，否则会静默按旧尺寸造 latent。
 
-- ⚪ **`krea2_turbo_native` / `flux1_dev_native` 未开工（2026-10-01 评估）**：二者本地库均无对应权重、架构未实证，与 `qwen_image_native` 同属「权重阻断」类——待对应权重落位后，按 Klein 流程（junction→config→executor KSampler 映射→preflight→tests）逐一接入，不臆造架构参数。
+- ⚪ **`krea2_turbo_native` / `flux1_dev_native` 未开工（2026-10-01 评估，2026-10-02 复核仍阻断）**：二者本地库均无对应权重、架构未实证（`pretrained_models/*` 下只有 Qwen-Image-2.1 / FLUX-2-klein-9b / Z-image-turbo 三组），**仍是权重阻断类**；待对应权重落位后，按 Klein 流程（junction→config→executor KSampler 映射→preflight→tests）逐一接入，不臆造架构参数。
+  下场接入前建议先跑「加载探针」（只 import + load 三件套，几十秒出结论），别照抄 `qwen_image_native` 那次「先信文档阻断结论 → 被实测推翻」的绕路。
 - ⚠️ widget 双处同步坑：aki-v3 工作流 JSON 的 `widgets_values`（positional）与 `widgets_values_named` 可能不同步，子图容器与内部还可能三处冲突 → **移植时一律读容器 positional 并实机验证**（详见蓝图「已知坑」）。
 - 多引擎 UI 过滤：README 已移除「全部 / Native」过滤项、简化为直接列引擎；新增引擎后需确认前端引擎列表渲染无回归。
 - 无独立阻塞，架构层已支持。
