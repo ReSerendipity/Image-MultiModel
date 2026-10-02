@@ -352,34 +352,8 @@ class VlmEngine:
 
     @staticmethod
     def _load_image_batch(images: list[str]) -> Any:
-        """把图片路径 / base64 拼成 comfy 约定形状的 ``[N,H,W,3]`` float32（0~1）张量。
-
-        Qwen3-VL 侧 ``process_qwen2vl_images`` 期望输入 0~1 归一化（内部按 mean=std=0.5
-        转成 -1~1），且只接受同一个批里分辨率一致（内部会按 patch 对齐 resize）。
-        多图分辨率不一致时统一缩放到首图尺寸，避免 torch.stack 直接炸。
-        """
-        import numpy as np
-        import torch
-        from PIL import Image
-
-        tensors: list[Any] = []
-        for img in images:
-            try:
-                arr = _decode_image_to_rgb(img)
-            except Exception as e:  # noqa: BLE001 - 单张图坏掉不该拖垮整轮对话
-                logger.warning("[VLM] 图片解码失败，按无图处理: %s", e)
-                continue
-            tensors.append(arr)
-        if not tensors:
-            return None
-        h, w = tensors[0].shape[:2]
-        if any(t.shape[:2] != (h, w) for t in tensors):
-            logger.warning("[VLM] 多图分辨率不一致，统一缩放到 %dx%d", h, w)
-            tensors = [
-                np.asarray(Image.fromarray(t).resize((w, h), Image.Resampling.BILINEAR), dtype=np.float32) / 255.0
-                for t in tensors
-            ]
-        return torch.from_numpy(np.stack(tensors, axis=0))
+        """类内委托到模块级 :func:`build_image_batch`，保证与 preflight 共用同一份实现。"""
+        return build_image_batch(images)
 
     def _acquire(self) -> Any:
         """获取（或加载）单例 ``comfy.sd.CLIP``；ref_count +1，取消挂起的空闲定时器。"""
@@ -498,6 +472,41 @@ def _decode_image_to_rgb(src: str) -> Any:
         raise ValueError(f"图片既不是可读文件也不是合法 base64: {src[:64]}") from e
     with Image.open(BytesIO(raw)) as im:
         return _from_pil(im)
+
+
+def build_image_batch(images: list[str]) -> Any:
+    """把图片路径 / base64 拼成 comfy 约定形状的 ``[N,H,W,3]`` float32（0~1）张量。
+
+    Qwen3-VL 侧 ``process_qwen2vl_images`` 期望输入 0~1 归一化（内部按 mean=std=0.5
+    转成 -1~1），且只接受同一个批里分辨率一致（内部会按 patch 对齐 resize）。
+    多图分辨率不一致时统一缩放到首图尺寸，避免 torch.stack 直接炸。
+
+    GOTCHAS（2026-10-02）：本函数是 preflight 与引擎**共用**的实现——早期版本 preflight 直接
+    import 引擎的静态方法，静态方法名一改 preflight 就 ImportError，且两份实现会漂移。故抽出
+    模块级单一实现，类内静态方法来信委托。
+    """
+    import numpy as np
+    import torch
+    from PIL import Image
+
+    tensors: list[Any] = []
+    for img in images:
+        try:
+            arr = _decode_image_to_rgb(img)
+        except Exception as e:  # noqa: BLE001 - 单张图坏掉不该拖垮整轮对话
+            logger.warning("[VLM] 图片解码失败，按无图处理: %s", e)
+            continue
+        tensors.append(arr)
+    if not tensors:
+        return None
+    h, w = tensors[0].shape[:2]
+    if any(t.shape[:2] != (h, w) for t in tensors):
+        logger.warning("[VLM] 多图分辨率不一致，统一缩放到 %dx%d", h, w)
+        tensors = [
+            np.asarray(Image.fromarray(t).resize((w, h), Image.Resampling.BILINEAR), dtype=np.float32) / 255.0
+            for t in tensors
+        ]
+    return torch.from_numpy(np.stack(tensors, axis=0))
 
 
 def _resolve_qwen3vl_weight(engine_cfg: Any, cfg: Any) -> str:

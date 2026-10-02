@@ -106,6 +106,38 @@ def test_tokenizer_text_only_has_no_image_embed():
     assert len(flat) > 0
 
 
+def test_image_batch_is_a_single_shared_module_level_function():
+    """图片装配只能是**一份**模块级实现，引擎静态方法与 preflight 都用它。
+
+    GOTCHAS（2026-10-02 实跑踩到）：早期 preflight 直接 ``from ...vlm_engine import _load_image_batch``，
+    而那是 ``VlmEngine`` 的 ``@staticmethod``——模块级 import 不到，preflight 一跑就 ``ImportError``；
+    且若各写一份，两份实现会漂移。故抽出 ``build_image_batch``，类内静态方法``return`` 委托。
+    """
+    from integrated_app.native import vlm_engine
+
+    assert callable(getattr(vlm_engine, "build_image_batch", None)), "必须存在模块级 build_image_batch"
+
+    # 静态方法体里必须真的调 build_image_batch（co_names 存的是全局名引用）
+    static_fn = vlm_engine.VlmEngine.__dict__["_load_image_batch"].__func__
+    assert "build_image_batch" in static_fn.__code__.co_names, "引擎静态方法必须委托到模块级 build_image_batch"
+
+    # 行为级兜底：两侧走同一份实现（每次调用都新建张量，故比数值/形状而非身份）
+    sample = str(REPO_ROOT / ".github" / "social-preview.png")
+    batch = vlm_engine.build_image_batch([sample])
+    via_static = vlm_engine.VlmEngine._load_image_batch([sample])
+    assert batch is not None and batch.shape[-1] == 3
+    assert via_static.shape == batch.shape and via_static.dtype == batch.dtype
+    assert torch.allclose(via_static, batch), "静态方法必须原样委托到同一份实现"
+
+
+def test_preflight_uses_module_level_image_builder():
+    """preflight 必须 import 模块级 build_image_batch（不是引擎静态方法）。"""
+    src = (REPO_ROOT / "scripts" / "preflight_qwen3vl.py").read_text(encoding="utf-8")
+    assert "import build_image_batch" in src, "preflight 需引用模块级 build_image_batch"
+    # 只禁 import 语句形式的引用——源码注释里提到那名字是允许的，用子串断言会误命中注释
+    assert "import _load_image_batch" not in src, "preflight 不得 import 引擎静态方法（会 ImportError）"
+
+
 def test_visual_preprocess_matches_qwen3vl_normalization():
     """Qwen3-VL 侧视觉预处理：patch_size=16、归一化 mean/std=0.5（→ -1~1），且 patch 维度自洽。"""
     from comfy.text_encoders import qwen_vl

@@ -1,8 +1,9 @@
 # P2 — VLM 看图聊天（后续可选演进）
 
 > 状态：🟢 **M1 已验收 + 已返工（2026-10-02）、M2-M6 已落地**；M1 推理路径已从 transformers 换成
-> comfy_kernel（权重无需 HF `config.json`）；**唯一遗留 = `clip.generate` 真实前向尚未实跑**
-> （本机可用显存/内存均不足，需腾出 ≥10 GiB 显存后跑 `scripts/preflight_qwen3vl.py` 闭环）。
+> comfy_kernel（权重无需 HF `config.json`）；**`clip.generate` 真实前向已于 2026-10-02 实跑闭环**
+> （腾出 ≥10 GiB 显存后 `scripts/preflight_qwen3vl.py` 退出码 OK(0)，另附换图对照实验证明视觉分支
+> 参与前向）；实测数据见下方 M1 验证状态段。**全部验收项已勾销**。
 > 关联：`docs/roadmap/README.md`（总索引）
 > 立项检索结论（2026-10-01 当时）：全仓 `grep -rni "vlm\|看图\|image chat"` 仅命中 vendored 内核里的
 > 零星变量名（`comfy_kernel/.../hidream_o1/conditioning.py`、`nodes_boogu.py` 的视觉塔），**非本平台功能**。
@@ -54,16 +55,18 @@
 
 ## 验收标准（升为「待办」后）
 
-- [x] 选定 VLM 权重并在 `config.yaml` 注册（M1，commit `2ed1534`）；⚠️ **本地加载未实跑**——
-      本机仅有单个 `qwen3vl_8b_int8_convrot.safetensors`，缺 HF 目录（`config.json`/tokenizer），
-      见 M1 验证状态与 `scripts/preflight_qwen3vl.py`（离线 SKIPPED，不静默降级）。
+- [x] 选定 VLM 权重并在 `config.yaml` 注册（M1，commit `2ed1534`）；已实跑（2026-10-02）——
+      本机仅有单个 `qwen3vl_8b_int8_convrot.safetensors`，**无需 HF 目录**（`config.json`/tokenizer 在
+      `comfy_kernel` 的 Python 侧与 `qwen25_tokenizer/`），见 M1 验证状态与 preflight 实测表。
 - [x] 多轮对话**链路**已通（M2/M5）：`/api/agent/chat` 接受 `images`、SSE 流式、前端图气泡已落地；
-      ⚠️ VLM 前向应答未实跑（同上行阻塞，缺 HF 目录）。
+      VLM 前向应答已实跑（2026-10-02 preflight OK(0)），见 M1 验证状态段实测表。
 - [x] 对话内容经 `content_filter` 过滤（与出图同口径）（M3，commit `f6c75f3`）。
 - [x] 编辑指令可桥接至编辑引擎执行（M6，commit `acd4bf7`）：解析 → 一键 `POST /api/generate`
       （`edit_mode=true` + `reference_image_path`）入队落盘。
 - [x] 回归测试覆盖过滤 / 多模态输入 / 编辑桥接 / 装配接线（M2/M3/M6 + `096ce57`）。
-- [ ] **唯一未闭环**：VLM 真实加载 + 多模态对话实机通过（需 HF 目录就位后跑 preflight 与端到端）。
+- [x] **VLM 真实加载 + 多模态对话实机通过**：2026-10-02 已闭环——preflight 退出码 OK(0)（权重定位 →
+      `load_clip` → `tokenize`（image embed=1）→ `generate` → `decode`），并经换图对照实验确认
+      视觉分支参与前向；端到端 UI 链路见 M2/M5/M6。
 
 ## 启动条件（见总索引「判定原则」）
 
@@ -138,11 +141,38 @@
 > - `process_qwen2vl_images(patch_size=16, mean=std=0.5)` 数值自洽（patch 数 == grid_h*grid_w）
 > - `_resolve_qwen3vl_weight` 经 `config_models.resolve_model_path` 命中真实 `.safetensors`（不碰文件本体）
 >
-> **未实证（如实标注，未静默降级、未伪造通过）**：`clip.generate` 的**真实前向**尚未实跑——
-> 本机 2026-10-02 实测 **可用显存 7.95 GiB / 可用内存 6.1 GiB**，均低于该 9.35 GB 权重的驻留需求
-> （且 ComfyUI 正在占用约 4 GiB 显存）。按 `scripts/preflight_qwen3vl.py` 跑一次即可闭环，
-> 条件：**腾出 ≥10 GiB 显存**（关闭 ComfyUI 或空闲时段）后执行
-> `py -3.12 scripts/preflight_qwen3vl.py --image <某张图>`。
+> **已实证（2026-10-02 实跑：非推断、非降级、非伪造）**：`clip.generate` 的**真实前向已跑通**。
+> 过程：精确结束占用显存的 ComfyUI（PID 41488）→ 腾出 10.8 GiB 空闲显存 → 执行
+> `py -3.12 scripts/preflight_qwen3vl.py --image comfy_kernel/input/example.png --max-new-tokens 8`
+> → 退出码 **OK(0)**。实测数据：
+>
+> | 环节 | 实测值 |
+> |---|---|
+> | 权重定位 | `pretrained_models/text_encoders/Qwen-Image-2.1/qwen3vl_8b_int8_convrot.safetensors` = 8.71 GiB |
+> | `comfy.sd.load_clip` | 返回 `CLIP`；**0.5s**（comfy 用 mmap 懒加载，此时权重尚未真正上卡） |
+> | 图片装配 | `image batch = (1, 768, 768, 3) dtype=torch.float32`（0~1） |
+> | `clip.tokenize` | `n_tokens=21`、**`image embed=1`**（占位符已就地换成 image embed dict） |
+> | `clip.generate` | 8 token / **24.9s**（首 token 7.25s——视觉塔 + 权重真正上卡的那一下） |
+> | `clip.decode` | `Hello! I'm Qwen, a` |
+>
+> 上表「0.5s 就 load 完」**不是**加载成功：comfy 的 `load_torch_file` 走 mmap，只建立映射不读盘；
+> 判据是后面 `generate` 首 token 耗时与能解出连贯文本，两者都过了。
+>
+> **视觉分支确实参与前向（对照实验，排除「纯文本模板」误判）**：同一提示词
+> 「这张图片里有什么？用中文一句话回答。」+ 确定性解码（`do_sample=False, seed=0`）换图，
+> 输出随之改变——
+>
+> | 输入 | `clip.decode` 输出 |
+> |---|---|
+> | `comfy_kernel/input/example.png` | 这张图片里有一个穿着粉色裙子、长着黄色翅膀的卡通小天使，背景是蓝天和绿地。 |
+> | 随机噪声 768×768（固定 rng 20261002） | 这张图片是一片由彩色噪点组成的抽象图案，没有清晰可辨的具体内容。 |
+>
+> 若视觉分支没接进前向，两次输出会完全相同（贪心解码无随机性）。故「多模态」成立，不只是「跑通」。
+>
+> ⚠️ **首跑曾失败（已修，留档）**：preflight 首跑以
+> `ImportError: cannot import name '_load_image_batch'` 中断——preflight 误引用了引擎的
+> `@staticmethod`（模块级 import 不到）。已把图片装配抽成模块级 `build_image_batch`，引擎静态方法
+> 委托之、preflight 亦引用之（**单一实现，两边同构**），并加回归测试锁住委托关系与引用方式。
 >
 > **2026-10-02 已按此返工落地**（`native/vlm_engine.py` + `scripts/preflight_qwen3vl.py`）：
 > 不再手组装 `Qwen3VL`（量化元数据会被漏掉），而是走 comfy 官方装配面

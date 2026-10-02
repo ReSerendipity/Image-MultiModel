@@ -137,9 +137,11 @@ def main() -> int:
     log("== [3] 构造多模态输入（tokenize）==")
     image_batch = None
     if args.image:
-        from app.integrated_app.native.vlm_engine import _load_image_batch
+        # GOTCHAS（2026-10-02）：这里必须拿模块级 build_image_batch，而不是引擎的静态方法
+        # _load_image_batch——preflight 与引擎共用同一份实现才不会漂移。
+        from app.integrated_app.native.vlm_engine import build_image_batch
 
-        image_batch = _load_image_batch([args.image])
+        image_batch = build_image_batch([args.image])
         log(f"    image batch = {tuple(image_batch.shape)} dtype={image_batch.dtype}（应为 [1,H,W,3] 0~1 float）")
 
     t0 = time.time()
