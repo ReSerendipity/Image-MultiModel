@@ -26,7 +26,8 @@
 | 项目当前状态 | 纯推理（多引擎：Z-Image / Qwen-Image 2.1 / Krea2 / FLUX.1-dev / Flux.2 Klein）；`native/lora.py` 仅推理时 LoRA 栈加载，非训练 | 本仓接入记录（`d858d51` 等）+ 复查报告 §3.0 / §3.3 |
 | **transformer 权重管线能否跑通**（2026-10-02 实跑） | ✅ **已实证**：AI-Toolkit 能加载本机 comfy Z-Image 单文件，`torch.equal` 逐张比对 **50/50 一致**，参数量 **6,154,908,736** | `scripts/preflight_zimage_lora_load.py` rc=0（含融合 qkv 拆分验证） |
 | transformer 权重的一个**必做适配** | ⚠️ comfy 权重带 `model.diffusion_model.` 前缀，AI-Toolkit **不剥离** → 直接喂会 `RuntimeError`（missing 全部 diffusers 键 / unexpected 全部 comfy 键）。**在内存改键名即可**（mmap 共享，无需复制 6GB） | GOTCHAS #46 |
-| TE / VAE 侧 | 🟡 **尚未跑通**：本机 comfy TE 是**逐层不同量化方案**的混合包（`q_proj` 有 `[4096,2560] F8_E4M3` 也有 `[4096,1280] U8` 打包），手搓反量化必然形状错配；VAE 是 LDM 键风格且**没有** `quant_conv`，AI-Toolkit 自带的 `convert_ldm_vae_checkpoint` 不适用 | GOTCHAS #46.4 / #46.5 |
+| **TE 侧**（2026-10-02 实跑） | ✅ **已转换并验证**：comfy TE 是**逐层不同量化方案**的混合包（`q_proj` 有 `[4096,2560] F8_E4M3` 也有 `[4096,1280] U8` 打包，手搓反量化必错）→ 改由 AI-Toolkit 自己加载后落标准 HF 目录（补绑权 `lm_head`）。回读 398 张量 / 4.02B 参数，前向 37 层隐状态、logits `(1,7,151936)` 正常 | GOTCHAS #46.5 / #46.6 |
+| **VAE 侧**（2026-10-02 实跑） | ✅ **已转换并验证**：comfy `ae.safetensors` 是 LDM 键风格且**没有** `quant_conv`（AI-Toolkit 自带 `convert_ldm_vae_checkpoint` 不适用）→ 自写映射覆盖 244/244 键，`strict=True` 零缺失，latent `(1,16,32,32)`，**重建 PSNR 40.24 dB** | GOTCHAS #46.4 / #46.7 |
 
 ## 关键推论
 
@@ -47,7 +48,7 @@
 |---|---|---|---|
 | T-28 | sd-scripts LUMINA 训练深读 | ✅ **2026-10-02 完成**：`load_lumina_model` 硬编码 `NextDiT_2B_GQA_patch2_Adaln_Refiner`（`library/lumina_util.py:47`），`NextDiT` 无 `dec_net`；Z-Image 全仓 0 匹配 → 结论「仅适用于 Lumina 官方 NextDiT 权重，不适用于本机 Z-Image」 | 无（reference_repos/sd-scripts 已克隆） |
 | T-22 | Caption / Tagger 评估 | ✅ **2026-10-02 完成**：**不引入 SDNext**——改用 AI-Toolkit 内置 `extensions_built_in/captioner` + `dataset_tools`。例外：若将来要 WD14/DeepDanbooru 传统 tagger 需另接节点 | 无 |
-| T-12 | 训练模块设计 / 实现 | 🟡 **选型已定（路径 A）+ 权重管线已实证**；训练 job 尚未跑起来 | AI-Toolkit 完整工作区已落地（`reference_repos/AI-Toolkit/ai-toolkit-main`，codeload zip 通路）；transformer 加载 100% 通过；阻塞在 TE/VAE 的 comfy→diffusers 适配（详见 GOTCHAS #46.4/#46.5），适配完成后才能跑最小 Z-Image LoRA job |
+| T-12 | 训练模块设计 / 实现 | 🟡 **三件套权重全部就绪并验证**；训练 job 首次启动中（AI-Toolkit 运行时依赖补齐阶段） | AI-Toolkit 完整工作区已落地（`reference_repos/AI-Toolkit/ai-toolkit-main`，codeload zip 通路）；transformer / TE / VAE 三条权重管线**均实证通过**；当前在补 AI-Toolkit 的运行时依赖（oyaml / albumentations / timm 等，本机 pip 极慢），补齐后跑最小 Z-Image LoRA job（512²/10 步/smoke） |
 | T-13 | 训练 UI（轻前端 + 状态回写薄层） | ⬜ 待 T-12 实跑验证后设计 | T-12 最小 job 跑通 |
 | T-14~T-16 | 其余训练相关（数据准备 / 采样 / 元数据） | ⬜ 未启动 | T-12 代码接入 |
 

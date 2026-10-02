@@ -179,3 +179,21 @@
 - **根因**：comfy 的量化方案写在**同名 `.comfy_quant` 标记张量**（U8 JSON）里，由加载端分发；逐层可以不同（fp8 / 打包 int8 / int4…）。AI-Toolkit 有对应实现（`toolkit/util/comfy_quant_import.py` 的 `import_comfy_quantized_layers`），**transformers 侧（`OstrisTransformersMixin`）也走这条**。
 - **正确做法**：不要自己 dequant，**让 AI-Toolkit 自己加载 comfy 单文件**（`Qwen3TextEncoder.load(<comfy .safetensors>, config_path=<extras>, subfolder="text_encoder")`）后再 `save_pretrained()` 落成标准 HF 目录，训练侧就能按常规 `from_pretrained` 读。
 - **首次发现**：2026-10-02（手搓转换脚本撞形状错配后回头读标记与源码查明）
+
+### 46.6 `save_pretrained()` 会撞 AI-Toolkit 量化模块：改用 `safetensors.save_file` 落盘
+
+- **触发场景**：用 AI-Toolkit 加载 comfy TE 后想 `save_pretrained()` 落成标准 HF 目录，好让训练侧按常规 `from_pretrained` 读。
+- **现象**：`RuntimeError: Attempted to access the data pointer on an invalid python storage.`（栈在 transformers 的 `remove_tied_weights_from_state_dict` → `id_tensor_storage` → `tensor.storage().data_ptr()`）——反量化后的线性层是 `OstrisLinear`，其权重不是 transformers 能取 storage 指针的普通张量。
+- **正确做法**：绕开 transformers，自己落盘：
+  `save_file({k: v.detach().to(bf16).cpu().contiguous() for k, v in model.state_dict().items() if k != "lm_head.weight"}, <out>/model.safetensors)`，
+  再把 HF 的 `config.json` 放同目录。注意**去掉 `lm_head.weight`**（config 里 `tie_word_embeddings=true`，留着会被 `from_pretrained` 判 unexpected）。
+- **顺带一条**：comfy TE 文件**不含** `lm_head.weight`，而 AI-Toolkit 的严格校验按 `model.state_dict()` 逐键比对会报 `missing ['lm_head.weight']` → 加载前显式补 `sd["lm_head.weight"] = sd["model.embed_tokens.weight"]`（绑权，语义等价）。
+- **首次发现**：2026-10-02（TE 转换实跑：落盘 8.04 GB，回读 398 张量 / 4.02B 参数，前向 37 层隐状态、logits `(1,7,151936)` 均正常）
+
+### 46.7 自写 VAE 键映射的两个必踩点（`nin_shortcut` 改名 / `up_blocks` 反向）
+
+- **触发场景**：comfy 的 `ae.safetensors` 是 LDM 键风格，要转成 diffusers `AutoencoderKL`。
+- **两个坑**：① LDM 的 `nin_shortcut` 在 diffusers 里叫 **`conv_shortcut`**，漏改名会报「missing conv_shortcut / unexpected nin_shortcut」；② LDM 的 `decoder.up.{i}` 与 diffusers 的 `decoder.up_blocks.{j}` **索引方向相反**（`j = num_up_blocks - 1 - i`，kohya 的 `convert_ldm_vae_checkpoint` 也是这么写的）。
+- **第三个坑（很容易顺手改错）**：只有 `mid_block.attentions.0.*` 的 4D 卷积权重要压成 2D（diffusers 用 Linear），**`conv_shortcut` 仍是 Conv2d 必须保持 4D**——统一 squeeze 会报 `size mismatch … [256,128] vs [256,128,1,1]`。
+- **验证必须做到功能层**：① 键全覆盖（源 244 键 mapped 244 / unmapped 0）；② `load_state_dict(strict=True)` 零 missing/unexpected；③ **编解码重建 PSNR**（本次 40.24 dB；映射错会直接变噪声，PSNR 会崩到十几 dB 以下）。只比对键数会漏掉「键在但接错块」的静默错配。
+- **首次发现**：2026-10-02（VAE 转换实跑：latent `(1,16,32,32)` 与 Z-Image 的 16 通道 /8 下采样一致）
