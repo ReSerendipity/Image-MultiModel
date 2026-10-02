@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import get_config
-from ..config_models import resolve_engine_model_paths
+from ..config_models import resolve_engine_load_options, resolve_engine_model_paths
 from ..engine_interface import GenerationConfig, ProgressCallback
 from ..security.path_guard import PathGuard
 from . import edit_executor, executor, output_pipeline
@@ -60,6 +60,9 @@ class NativeEngine:
         self._ready = False
         self._cancel_requested = False
         self._model_paths: dict[str, str] = {}
+        # 加载选项（unet_key_prefix / text_encoder_clip_type），非路径，单独存放：
+        # 混入 _model_paths 会让权重完整性校验把它当文件去验（GOTCHAS #41/42）。
+        self._load_options: dict[str, str] = {}
         self._thumbnail_path = ""
 
     # ── 协议属性 ────────────────────────────────────────────
@@ -86,6 +89,7 @@ class NativeEngine:
             raise RuntimeError(f"Engine '{self._name}' not found in config.models.engines")
 
         self._model_paths = resolve_engine_model_paths(engine_cfg, cfg.models, cfg.project_root)
+        self._load_options = resolve_engine_load_options(engine_cfg, cfg.models, cfg.project_root)
         if not self._model_paths:
             raise RuntimeError(f"Engine '{self._name}' has no resolvable model paths")
 
@@ -220,7 +224,12 @@ class NativeEngine:
         ):
             fut = loop.run_in_executor(
                 None,
-                lambda: executor.txt2img(config, self._model_paths, on_progress=on_progress, cancel_flag=cancel_flag),
+                lambda: executor.txt2img(
+                    config,
+                    {**self._model_paths, **self._load_options},
+                    on_progress=on_progress,
+                    cancel_flag=cancel_flag,
+                ),
             )
 
             # 注册取消：内部标志置位 + 取消 future

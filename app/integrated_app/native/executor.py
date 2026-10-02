@@ -90,6 +90,61 @@ def _resolve_device() -> torch.device:
     return torch.device("cpu")
 
 
+def _comfy_runtime() -> Any:
+    """惰性装载 comfy 运行时并取回 `comfy` 模块。
+
+    ``comfy`` 只在真正要跑模型时才需要（且要求 ``comfy_root`` 已进 ``sys.path``，
+    见 :func:`source.ensure_loaded`），故不能在模块顶层 ``import comfy``——那会让
+    整个 app 一导入就背上限 comfy 源码。这里统一走惰性入口，下面的加载定制
+    函数都通过它取 comfy.sd / comfy.utils，避免「函数内局部 import 只绑到局部名」
+    造成的 ``NameError``/静态检查报 ``F821``。
+    """
+    import comfy  # noqa: PLC0415  # 惰性导入：仅在真正加载/推理时才需要 comfy 源码
+    import comfy.model_management  # noqa: F401,PLC0415  # 初始化模型管理
+    import comfy.samplers  # noqa: F401,PLC0415
+    import comfy.sd  # noqa: F401,PLC0415
+    import comfy.utils  # noqa: F401,PLC0415
+
+    return comfy
+
+
+def _load_diffusion_model(unet_path: str, unet_key_prefix: str | None = None) -> Any:
+    """加载 UNET；``unet_key_prefix`` 非空时先剥前缀再走状态字典入口。
+
+    2026-10-02 Krea2 实证引入：本机 Krea2-turbo 只有带 ``model.diffusion_model.`` 前缀的
+    完整 checkpoint（AIO 版）才被 safetensors rust 后端读得了——那份纯 fp8 的
+    ``krea2_turbo_fp8_scaled.safetensors`` 带 ``_quantization_metadata``，rust 后端 0.8.0
+    会报 "file not fully covered"（详见 GOTCHAS #41）。故 AIO 走「读文件 → 剥前缀 →
+    ``load_diffusion_model_state_dict``」，``load_diffusion_model`` 本身没有 prefix 参数。
+    """
+    comfy_rt = _comfy_runtime()
+    if not unet_key_prefix:
+        return comfy_rt.sd.load_diffusion_model(unet_path)
+    sd, _metadata = comfy_rt.utils.load_torch_file(unet_path, return_metadata=True)
+    sd = {k[len(unet_key_prefix) :]: v for k, v in sd.items() if k.startswith(unet_key_prefix)}
+    if not sd:
+        raise RuntimeError(f"权重里没有 '{unet_key_prefix}' 前缀的 DiT 键，剥前缀后为空：{unet_path}")
+    return comfy_rt.sd.load_diffusion_model_state_dict(sd)
+
+
+def _load_text_encoder(te_paths: list[str], clip_type: str | None = None) -> Any:
+    """加载 CLIP；``clip_type`` 命中 ``CLIPType`` 枚举时显式下发。
+
+    2026-10-02 Krea2 实证引入：Krea2 的 TE 是 Qwen3-VL-4B，必须走 ``CLIPType.KREA2``
+    分支（sd.py 要求 ``clip_type == CLIPType.KREA2`` 且 ``te_model == TEModel.QWEN3VL_4B``
+    同时成立才会取 12 层 tap = 30720 维）；传字符串 ``"krea2"`` **不等于**枚举，会落回
+    通用分支按单层 2560 维建 TE，前向即报 "expects ... 12x2560=30720 ... but got 2560"
+    （详见 GOTCHAS #42）。
+    """
+    comfy_rt = _comfy_runtime()
+    if not clip_type:
+        return comfy_rt.sd.load_clip(te_paths)
+    clip_type_enum = getattr(comfy_rt.sd.CLIPType, str(clip_type).upper(), None)
+    if clip_type_enum is None:
+        return comfy_rt.sd.load_clip(te_paths)
+    return comfy_rt.sd.load_clip(te_paths, clip_type=clip_type_enum)
+
+
 def _load_models(
     model_paths: dict[str, str],
     comfy_root: str | None = None,
@@ -103,14 +158,17 @@ def _load_models(
     Returns:
         装载好的 NativeModels 对象
 
+    ``model_paths`` 支持三个可选键（均缺省时行为与历史完全一致，见 GOTCHAS #41/42）：
+        - ``text_encoder``: 文本编码器权重
+        - ``unet``: 扩散主干权重
+        - ``unet_key_prefix``: UNET 权重键的统一前缀（非空时先剥前缀再加载，Krea2 AIO 需要）
+        - ``text_encoder_clip_type``: CLIP 类型名（如 ``krea2``，内部映射为 ``CLIPType.KREA2`` 枚举）
+
     Raises:
         RuntimeError: 缺少必需模型路径或模型加载失败
     """
     source.ensure_loaded(comfy_root=comfy_root)
-
-    import comfy.model_management  # noqa: F401  # 初始化模型管理
-    import comfy.samplers
-    import comfy.sd
+    comfy_rt = _comfy_runtime()
 
     unet_path = model_paths.get("unet")
     te_path = model_paths.get("text_encoder")
@@ -124,16 +182,16 @@ def _load_models(
     device = _resolve_device()
 
     # 加载 unet（Z-Image 自动检测为 Lumina2/ZImage，内置 ModelSamplingDiscreteFlow shift=3）
-    model = comfy.sd.load_diffusion_model(unet_path)
+    model = _load_diffusion_model(unet_path, model_paths.get("unet_key_prefix"))
     model_sampling = model.get_model_object("model_sampling")
     latent_format = getattr(model, "latent_format", None)
 
-    # 加载 clip（Z-Image 用 qwen_image 类型，load_clip 自动检测）
-    clip = comfy.sd.load_clip([te_path])
+    # 加载 clip（Z-Image 用 qwen_image 类型，load_clip 自动检测；Krea2 需显式 clip_type=krea2）
+    clip = _load_text_encoder([te_path], model_paths.get("text_encoder_clip_type"))
 
     # 加载 vae
-    vae_sd = comfy.utils.load_torch_file(vae_path)
-    vae = comfy.sd.VAE(sd=vae_sd)
+    vae_sd = comfy_rt.utils.load_torch_file(vae_path)
+    vae = comfy_rt.sd.VAE(sd=vae_sd)
 
     return NativeModels(
         model=model,
@@ -203,7 +261,10 @@ def txt2img(
 
     Args:
         config: 生图配置（prompt / steps / cfg / width / height / seed / batch_size）
-        model_paths: unet / text_encoder / vae 绝对路径映射
+        model_paths: unet / text_encoder / vae 绝对路径映射；
+            另可带可选键 ``unet_key_prefix``（UNET 键前缀，Krea2 AIO 用）与
+            ``text_encoder_clip_type``（CLIP 类型名，Krea2 取 ``krea2``）。
+            两者缺省时行为与历史完全一致（见 GOTCHAS #41/42）。
         on_progress: 进度回调 (pct, phase, extra)
         comfy_root: Comfy 源码根目录
         cancel_flag: 长度 1 列表，采样中置 True 抛 CancelledError 取消

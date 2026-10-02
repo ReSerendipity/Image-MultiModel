@@ -267,6 +267,70 @@ models:
       weight_version: ''
       training_data_source: ''
       compatibility_matrix: {}
+    krea2_turbo_native:
+      name: krea2_turbo_native
+      display_name: Krea2-turbo (原生文生图)
+      display_name_en: Krea2-turbo (Native txt2img)
+      backend: native
+      workflow_file: ''
+      parameter_schema: ''
+      comfy_source_dir: comfy_kernel
+      custom_nodes_dir: ''
+      seedvr2_source_dir: ''
+      text_encoder:
+        sub_dir: text_encoders
+        # GOTCHAS（2026-10-02 实证）：Krea2 的 TE 是 Qwen3-VL-4B，必须走 CLIPType.KREA2
+        # **枚举**（值 32）。``comfy/sd.py`` 的分支条件是
+        # ``clip_type == CLIPType.KREA2 and te_model == TEModel.QWEN3VL_4B``；只判 clip_type
+        # 会按**单层 2560 维**建 TE，前向报 `expects 12x2560=30720 features ... but got 2560`。
+        # 传字符串 "krea2" **不等于**枚举，同样失败——config 里写 `krea2` 是由 executor
+        # ``_load_text_encoder`` 用 ``getattr(CLIPType, "KREA2")`` 转成枚举再下发。
+        sub_path: Krea2/qwen3-vl-4b-heretic_fp8_e4m3fn.safetensors
+        clip_type: krea2
+      unet:
+        sub_dir: unet
+        # GOTCHAS（2026-10-02 实证）：同目录的 `krea2_turbo_fp8_scaled.safetensors`（12.24 GiB）
+        # safetensors 0.8.0 rust 后端打不开（MetadataIncompleteBuffer / file not fully covered），
+        # 逐项对照实验排除 junction/体积/头覆盖/_quantization_metadata 后确认是该文件自身的
+        # fp8 描述符问题；AIO 那份（16.61 GiB）``load_torch_file`` 正常。故只用 AIO 这份。
+        sub_path: Krea2-turbo/krea2TurboNSFWAIO_v10.safetensors
+        # AIO checkpoint 的键带 `model.diffusion_model.` 前缀，加载前必须剥掉
+        # （executor `_load_diffusion_model`，见 GOTCHAS #41）。
+        key_prefix: model.diffusion_model.
+      vae:
+        sub_dir: vae
+        sub_path: Krea2/qwen_image_vae.safetensors
+      model_id: ''
+      local_model_dir: ''
+      vram_gb: 12.0
+      ram_gb: 32.0
+      default_precision: fp8
+      fallback_precision: fp8
+      supported_features:
+      - txt2img
+      default_width: 1024
+      default_height: 1024
+      # Krea2 的 latent_format 是 `latent_formats.Wan21`：`latent_channels=16`、
+      # 时间维 t=1、空间下采样 8（`/c/.../comfy/latent_formats.py` 里 Wan21 没有
+      # spacial_downscale_ratio 属性，空间倍率在 comfy_extras/nodes_wan.py 写死为 //8）。
+      # 造 latent 必须是 **5D [1,16,1,H/8,W/8]**；造 4D 会被当 16 个时间帧 → 出 61 帧废图。
+      latent_channels: 16
+      latent_downscale: 8
+      # 2026-10-02 preflight 实证回填：euler+simple 512²/4 步端到端出图
+      # （outputs/_preflight_krea2/krea2_euler_simple.png，猫坐木桌，与 prompt 吻合）。
+      sampler: euler
+      scheduler: simple
+      image_formats:
+      - png
+      license: Apache-2.0
+      tags:
+      - txt2img
+      - native
+      - krea2
+      weight_sha256: ''
+      weight_version: ''
+      training_data_source: ''
+      compatibility_matrix: {}
 inference:
   default_steps: 10
   default_cfg: 1.0

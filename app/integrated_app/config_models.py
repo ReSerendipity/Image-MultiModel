@@ -74,10 +74,19 @@ class PortableConfig(BaseModel):
 
 
 class ModelPaths(BaseModel):
-    """单个模型文件的路径声明（如 text_encoder / unet / vae）"""
+    """单个模型文件的路径声明（如 text_encoder / unet / vae）
+
+    两个可选加载字段（2026-10-02 Krea2 实证新增，缺省均为空串 = 历史行为）：
+        key_prefix:     权重键的统一前缀；非空时加载前剥掉（Krea2 的 AIO checkpoint
+                        用 ``model.diffusion_model.`` 前缀，见 GOTCHAS #41）
+        clip_type:      CLIP 类型名；非空时显式下发（Krea2 必须是 ``krea2``
+                        才能走 12 层 tap 分支，见 GOTCHAS #42）
+    """
 
     sub_dir: str = ""
     sub_path: str = ""
+    key_prefix: str = ""
+    clip_type: str = ""
 
 
 class EngineConfig(BaseModel):
@@ -649,6 +658,43 @@ def resolve_engine_model_paths(
         mp: ModelPaths | None = getattr(engine, attr, None)
         if mp and mp.sub_path:
             result[attr] = resolve_model_path(mp, config, project_root)
+    return result
+
+
+def resolve_engine_load_options(
+    engine: EngineConfig,
+    config: ModelsConfig,
+    project_root: str | Path,
+) -> dict[str, str]:
+    """解析引擎的**加载选项**（不是路径），供 executor 按引擎族定制加载行为。
+
+    2026-10-02 Krea2 实证新增。为何不和 :func:`resolve_engine_model_paths` 合并返回：
+    后者的返回值会被当成「角色 → 权重绝对路径」逐条送去做
+    ``verify_weight_before_load``（``native/engine.py`` 的 load 流程），
+    混入非路径键会让权重完整性校验误把它当文件去验。故拆成独立函数、独立传参。
+
+    支持两个键（缺省时返回空字典，行为与历史完全一致）：
+        - ``unet_key_prefix``: ``ModelPaths.key_prefix``（UNET 键统一前缀，加载时剥掉）
+        - ``text_encoder_clip_type``: ``ModelPaths.clip_type``（CLIP 类型名，如 ``krea2``）
+
+    Args:
+        engine: 引擎配置
+        config: ModelsConfig 实例（本函数不改动它，保留参数以便未来扩展基于路径的解析）
+        project_root: 项目根目录（同上，仅保持与 resolve_engine_model_paths 签名一致）
+
+    Returns:
+        {"unet_key_prefix": str, "text_encoder_clip_type": str} 的子集
+    """
+    del config, project_root  # 当前实现不依赖路径解析，保留形参以保证调用方签名一致
+    result: dict[str, str] = {}
+    unet = getattr(engine, "unet", None)
+    key_prefix = getattr(unet, "key_prefix", "") or ""
+    if key_prefix:
+        result["unet_key_prefix"] = key_prefix
+    te = getattr(engine, "text_encoder", None)
+    clip_type = getattr(te, "clip_type", "") or ""
+    if clip_type:
+        result["text_encoder_clip_type"] = clip_type
     return result
 
 
