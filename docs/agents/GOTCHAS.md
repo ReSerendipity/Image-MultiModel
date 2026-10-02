@@ -142,3 +142,40 @@
 - **可行解**：**`api.github.com` 的 contents 接口最稳**（列表 + base64 取文件内容都能成），于是改成「按需单文件拉」：`https://api.github.com/repos/{owner}/{repo}/contents/{path}` → `base64.b64decode(content)`；列表用 `contents/{dir}` 过滤 `type=='dir'/'file'`。AI-Toolkit 的 `z_image.py` / `resolver.py` / `flux.py` / `README.md` 四次拉取全部成功，耗时十几秒。
 - **正确做法**：① 研究阶段（只读几个关键文件做选型）**默认走 API 按需拉**，别先花 10 分钟 clone 一个 100MB+ 的仓；② 只有确认要「装起来跑」时才整仓 clone，且做好重试/镜像/codeload zip 三档退路；③ 拉取失败要重试 2~3 次（502 多为瞬时），并在脚本里带 `retry + sleep`，不要一次失败就判定「不能拉」。
 - **首次发现**：2026-10-02（T-12 选型 POC，`reference_repos/AI-Toolkit-src/`）
+
+| 46 | **AI-Toolkit 加载 comfy 单文件 Z-Image：不会剥离 `model.diffusion_model.` 前缀，必须自己剥（好消息是它这条路径是 strict 的）** | T-12 代码接入：用 AI-Toolkit 的 `ZImageTransformer2DModel.load_model()` 直接吃本机 comfy 权重 `unet/Z-image-turbo/zimageTurboNSFWByStable_2602NSFWFP8.safetensors`（6155 MB，键全部带 `model.diffusion_model.` 前缀） | `RuntimeError: Error(s) in loading state_dict for ZImageTransformer2DModel: Missing key(s) …`（`layers.*`、`context_refiner.*`、`t_embedder.*`、`all_x_embedder.2-1.*` 等全部 expected 键缺失）+ `Unexpected key(s) …`（全部 `model.diffusion_model.*`）。即：**转换函数只做内部键改写（`qkv` 拆 `to_q/k/v`、`x_embedder.`→`all_x_embedder.2-1.`、`.attention.out.`→`.attention.to_out.0.`、`q_norm/k_norm`→`norm_q/norm_k`），不剥 comfy 外层前缀**；`convert_state_dict_on_load` 前后键数 453→521，带前缀数仍是 521 | ① **在内存里改键名再交给它**：`sd = {k[len("model.diffusion_model."):] if k.startswith(...) else k: v for k,v in load_file(f).items()}`（safetensors 是 mmap 共享存储，**不用复制 6GB 文件**），然后走 `load_from_state_dict(sd, dtype, config_path=…, subfolder=cls.aitk_subfolder)`；② 值得庆幸的是**这条路径 `load_state_dict(..., assign=True)` 是 strict 的**，会直接抛错而非像 GOTCHAS #45 那样静默停在随机初始化——所以「能不能加载」必须用探针实跑，不能靠"没报错"判断；③ 验证要**逐张比数值**而不是只看形状：本探针用 `convert_state_dict_on_load` 反推目标键，对 50 个非量化浮点键做 `torch.equal`，全部一致，参数量 6,154,908,736 | 2026-10-02（`scripts/preflight_zimage_lora_load.py` rc=0 实证） |
+
+### 46.1 大仓整仓获取的第三档通路：codeload zip（前两档失败后的正解），且 Range 续传无效
+
+- **触发场景**：GOTCHAS #45.2 已记「`git clone` 两次被掐断 → 改用 API 按需拉」，但要**跑起来**必须有完整工作区。
+- **实测**：`https://codeload.github.com/ostris/AI-Toolkit/zip/refs/heads/main` 单次 17 分钟收完 35,813,488 字节（速率约 50 KB/s，与 GitHub API / raw 同量级，是本机网络而非通道问题）；**关键是必须用 EOCD（`PK\x05\x06`）判定完整性**——第一次 `--max-time 300` 拿到 13,764,763 字节时是**截断 ZIP**，头部 `PK\x03\x04` 正常、只在 `zipfile.BadZipFile` 时才暴露。
+- **坑**：断点续传（`curl -C -`）连试 8 次**字节数纹丝不动**（服务端/代理不接受 Range），所以只能**整包重下 + 循环重试**，不要指望续传。
+- **正确做法**：下载脚本固定为 `for i in 1..3: curl -o file <url>; python 检查尾部 300KB 内是否有 PK\x05\x06; 命中即 break`。解压前另做路径穿越检查（`..` / 绝对路径条目）。
+- **首次发现**：2026-10-02（AI-Toolkit 完整工作区落地到 `reference_repos/AI-Toolkit/ai-toolkit-main`）
+
+### 46.2 本机访问 HuggingFace：`curl` 要 `--ssl-no-revoke`，Python requests 直接 `CERTIFICATE_VERIFY_FAILED`
+
+- **现象**：`curl https://huggingface.co/...` 报 `schannel: next InitializeSecurityContext failed: CRYPT_E_NO_REVOCATION_CHECK`（Windows 侧吊销状态查不到，代理 MITM 证书本身是受信任的）；加 `--ssl-no-revoke` 即 200。**Python 侧更糟**：`requests`/`huggingface_hub` 用 OpenSSL + certifi，本机代理 CA **没有可提供的 pem 文件**（`~/.mitmproxy` 不存在，找到的 `office-plugin-tls/ca-cert.pem` 不是同一个 CA），设 `SSL_CERT_FILE`/`REQUESTS_CA_BUNDLE` 仍然 `unable to get local issuer certificate`；`verify=False` 才 200。
+- **正确做法**：仓库脚本**默认保持校验**，把免校验降级做成**显式开关**（本探针 `AI_TRAIN_HF_INSECURE=1` 才走 `requests.get(..., verify=False)`，且打 WARN），绝不把"关校验"写成默认行为；需要离线复现时用 `--extras-dir` 预置缓存目录（已有文件直接跳过下载）。
+- **伴随结论**：HF 单文件可达且够快（tokenizer.json 11.4MB 数十秒），但**训练所需的 TE 权重 8GB 量级不现实** → 一律优先"转换本机已有权重"，只从 HF 取 config / tokenizer 这类**小文件**。
+- **首次发现**：2026-10-02
+
+### 46.3 AI-Toolkit 的 `config_path` 是「checkpoint 根 + subfolder」，不是「放 config.json 的那个目录」
+
+- **现象**：按直觉把 `<extras>/transformer/config.json` 的**父目录**当 `config_path` 传 → `OSError: Error no file named config.json found in directory <extras>`。
+- **根因**：`_load_single_file_config(config_path, subfolder)` 走 `aitk_load_config(config_source, subfolder=subfolder)`，即**在 `<config_path>/<subfolder>/` 下找 config**；subfolder 缺省为类的 `aitk_subfolder`（Z-Image transformer 是 `"transformer"`、TE 是 `"text_encoder"`、VAE 是 `"vae"`）。传 `subfolder=None` 就退化成在根目录找 `config.json`。
+- **正确做法**：按 **HF 仓库布局**组织本地 extras 目录（`transformer/config.json`、`text_encoder/config.json`、`tokenizer/*`、`vae/config.json`），并显式传 `subfolder=<cls>.aitk_subfolder`。
+- **首次发现**：2026-10-02
+
+### 46.4 `toolkit/kohya_model_util.convert_ldm_vae_checkpoint()` 是 SD 时代的函数，不能直接喂 comfy 的 FLUX / Z-Image VAE
+
+- **现象/源码事实**：该函数先 `for key in keys: if key.startswith("first_stage_model.")` 抽 VAE 子字典（**回退分支被注释掉了**，传裸 state_dict 会得到空 dict → 下一行 `Key: encoder.conv_in.weight`）；随后无条件取 `quant_conv` / `post_quant_conv`——而**本机 Z-Image/FLUX 的 `ae.safetensors` 根本没有这两组键**（244 键只有 `encoder.*` 106 + `decoder.*` 138，是 16 通道连续 VAE 无量化卷积），直接 `KeyError`。
+- **正确做法**：① 要用它就得先加 `first_stage_model.` 前缀；② 对 FLUX/Z-Image VAE 得自己写映射（`encoder.down.{i}.block.{j}.*`→`encoder.down_blocks.{i}.resnets.{j}.*`、`nin_shortcut`→`conv_shortcut`、`down.{i}.downsample.conv`→`down_blocks.{i}.downsamplers.0.conv`、`mid.attn_1.{q,k,v,proj_out,norm}`→`mid_block.attentions.0.{to_q,to_k,to_v,to_out.0,group_norm}`、`mid.block_{1,2}`→`mid_block.resnets.{0,1}`、`norm_out`→`conv_norm_out`，decoder 侧同理用 `up_blocks`/`upsamplers`）；③ 转换结果**必须用「同一个 latent 分别过 comfy VAE 与 diffusers VAE 比对输出」验证**，只比对键数会漏掉静默错配。
+- **首次发现**：2026-10-02（读 `toolkit/kohya_model_util.py:709` 源码 + dump 本机 `ae.safetensors` 键分组）
+
+### 46.5 comfy 的 TE 权重是「逐层不同量化方案」的混合包，手搓反量化必错
+
+- **现象**：本机 `text_encoders/Z-image-turbo/qwen_3_4b_fp8_mixed.safetensors` 里，layer 0 的 `q_proj` 是 `[4096,2560] F8_E4M3`，**layer 1~6 却是 `[4096,1280] U8`**（入维对折 = 打包存储），`v_proj` 有的层 F8、有的层 BF16。按「`weight * weight_scale`」统一反量化 → `size mismatch for model.layers.1.self_attn.q_proj.weight: copying a param with shape torch.Size([4096, 1280]) … current model is torch.Size([4096, 2560])`。
+- **根因**：comfy 的量化方案写在**同名 `.comfy_quant` 标记张量**（U8 JSON）里，由加载端分发；逐层可以不同（fp8 / 打包 int8 / int4…）。AI-Toolkit 有对应实现（`toolkit/util/comfy_quant_import.py` 的 `import_comfy_quantized_layers`），**transformers 侧（`OstrisTransformersMixin`）也走这条**。
+- **正确做法**：不要自己 dequant，**让 AI-Toolkit 自己加载 comfy 单文件**（`Qwen3TextEncoder.load(<comfy .safetensors>, config_path=<extras>, subfolder="text_encoder")`）后再 `save_pretrained()` 落成标准 HF 目录，训练侧就能按常规 `from_pretrained` 读。
+- **首次发现**：2026-10-02（手搓转换脚本撞形状错配后回头读标记与源码查明）

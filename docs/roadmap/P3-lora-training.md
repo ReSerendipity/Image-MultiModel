@@ -24,6 +24,9 @@
 | AI-Toolkit 是否支持 Windows | ✅ 官方支持（`README.md`：`Windows: double-click run_windows.bat`；安装只需 git） | 本机为 Windows 11 + RTX 5070 Ti Laptop 11.9GB，硬约束满足 |
 | 本机 ComfyUI（aki-v3）有无训练节点 | ⚠️ **原路线「路径 B 基于 aki-v3 训练节点」前提不成立**：`ComfyUI/custom_nodes/` 下 17 个节点包里**没有任何训练类节点**（无 train / LoRA 训练 / optimizer），全部是推理/加速/显存类 | `ls ComfyUI-aki-v3/ComfyUI/custom_nodes` 全量枚举 + 对 `train/lora/optimizer` 关键字 grep 无命中 |
 | 项目当前状态 | 纯推理（多引擎：Z-Image / Qwen-Image 2.1 / Krea2 / FLUX.1-dev / Flux.2 Klein）；`native/lora.py` 仅推理时 LoRA 栈加载，非训练 | 本仓接入记录（`d858d51` 等）+ 复查报告 §3.0 / §3.3 |
+| **transformer 权重管线能否跑通**（2026-10-02 实跑） | ✅ **已实证**：AI-Toolkit 能加载本机 comfy Z-Image 单文件，`torch.equal` 逐张比对 **50/50 一致**，参数量 **6,154,908,736** | `scripts/preflight_zimage_lora_load.py` rc=0（含融合 qkv 拆分验证） |
+| transformer 权重的一个**必做适配** | ⚠️ comfy 权重带 `model.diffusion_model.` 前缀，AI-Toolkit **不剥离** → 直接喂会 `RuntimeError`（missing 全部 diffusers 键 / unexpected 全部 comfy 键）。**在内存改键名即可**（mmap 共享，无需复制 6GB） | GOTCHAS #46 |
+| TE / VAE 侧 | 🟡 **尚未跑通**：本机 comfy TE 是**逐层不同量化方案**的混合包（`q_proj` 有 `[4096,2560] F8_E4M3` 也有 `[4096,1280] U8` 打包），手搓反量化必然形状错配；VAE 是 LDM 键风格且**没有** `quant_conv`，AI-Toolkit 自带的 `convert_ldm_vae_checkpoint` 不适用 | GOTCHAS #46.4 / #46.5 |
 
 ## 关键推论
 
@@ -44,7 +47,7 @@
 |---|---|---|---|
 | T-28 | sd-scripts LUMINA 训练深读 | ✅ **2026-10-02 完成**：`load_lumina_model` 硬编码 `NextDiT_2B_GQA_patch2_Adaln_Refiner`（`library/lumina_util.py:47`），`NextDiT` 无 `dec_net`；Z-Image 全仓 0 匹配 → 结论「仅适用于 Lumina 官方 NextDiT 权重，不适用于本机 Z-Image」 | 无（reference_repos/sd-scripts 已克隆） |
 | T-22 | Caption / Tagger 评估 | ✅ **2026-10-02 完成**：**不引入 SDNext**——改用 AI-Toolkit 内置 `extensions_built_in/captioner` + `dataset_tools`。例外：若将来要 WD14/DeepDanbooru 传统 tagger 需另接节点 | 无 |
-| T-12 | 训练模块设计 / 实现 | 🟡 **选型已定（路径 A）+ 证据链已落**；代码接入未启动 | 下一步：安装 AI-Toolkit 并跑最小 Z-Image LoRA job 做实证（本机未安装，本机 `reference_repos/AI-Toolkit` 未整仓克隆成功——大仓 clone 两次被远端掐断） |
+| T-12 | 训练模块设计 / 实现 | 🟡 **选型已定（路径 A）+ 权重管线已实证**；训练 job 尚未跑起来 | AI-Toolkit 完整工作区已落地（`reference_repos/AI-Toolkit/ai-toolkit-main`，codeload zip 通路）；transformer 加载 100% 通过；阻塞在 TE/VAE 的 comfy→diffusers 适配（详见 GOTCHAS #46.4/#46.5），适配完成后才能跑最小 Z-Image LoRA job |
 | T-13 | 训练 UI（轻前端 + 状态回写薄层） | ⬜ 待 T-12 实跑验证后设计 | T-12 最小 job 跑通 |
 | T-14~T-16 | 其余训练相关（数据准备 / 采样 / 元数据） | ⬜ 未启动 | T-12 代码接入 |
 
@@ -55,7 +58,10 @@
   `fatal: the remote end hung up unexpectedly`**，改用 GitHub API（`api.github.com` 的 contents 接口）
   按需单文件拉取到 `reference_repos/AI-Toolkit-src/`（`z_image.py` / `resolver.py` / `flux.py` / `README.md`
   等）——**这条路比整仓 clone 稳得多，大仓研究建议默认走 API 按需拉**。
-  若要把 AI-Toolkit 真正装起来跑训练，仍需想办法拿到完整工作区（重试 clone / 下载 codeload zip / 换镜像）。
+  ✅ **AI-Toolkit 完整工作区已拿到（2026-10-02）**：走 codeload zip（35,813,488 B，17 分钟），已解压到
+  `C:\Users\Doro\reference_repos\AI-Toolkit\ai-toolkit-main`；依赖用 `--system-site-packages` 的独立
+  venv（`C:\Users\Doro\AI-Toolkit-env`）共享本机 torch 2.11 / diffusers 0.40，只补装 peft / torchao /
+  lycoris-lora / flatten_json / python-dotenv（**不污染项目 Python 环境**）。详见 GOTCHAS #46.1。
 - ⚠️ **训练尚未在本机跑过一次**：选型是**源码级实证**，不是运行级实证。T-12 代码接入的前置条件是
   「AI-Toolkit 可安装 + 最小 Z-Image LoRA job 跑通」，文档里不许把源码结论冒充跑通结论。
 - 项目当前纯推理架构（已接入 5 个 native 引擎），训练模块需新建独立子系统（不与推理任务队列冲突）；
