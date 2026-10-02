@@ -8,7 +8,7 @@
 - 能力路线此前仅存在于提交历史与对话共识，**没有落在任何已提交文档**：
   - P0 会话持久化 / 流式 / 冷启动 / 图片保护 / 多标签 → `commit 891fdfe`
   - P1 编辑引擎（vendored 内核 v0.38.0 + Qwen-Image 2.1 Edit 原生接入）→ `commit 322ba54`
-  - P2 多引擎接入 → `P2-multi-engine.md` 已文档化（Flux.2 Klein 验收）；VLM 看图聊天 → `P2-vlm-chat.md` 已立项，M1 已验收、**M2-M6 已落地**（仅真实多模态前向待权重目录闭环）
+  - P2 多引擎接入 → `P2-multi-engine.md` 已文档化（Flux.2 Klein 验收）；VLM 看图聊天 → `P2-vlm-chat.md` 已立项，M1 已验收 + 返工、**M2-M6 已落地**（仅 `clip.generate` 真实前向待显存余量闭环）
 - 代码注释引用的 `MASTER_PLAN`（见 `app/integrated_app/routes/engine_routes.py` 顶部「对应 MASTER_PLAN §5.1」）**仓库中不存在**，属悬空引用 → 本目录即作为其能力路线载体（另见 open issue：补/删该注释）。
 
 ## 能力切片总览
@@ -18,7 +18,7 @@
 | P0 | 会话持久化 + 流式 delta + 冷启动提示 + 图片保护 + 多标签页 | ✅ 已落地 | — | `commit 891fdfe`、i18n×5、SSE 分片解码 |
 | P1 | 编辑引擎（Qwen-Image 2.1 Edit 原生接入） | ✅ 已落地 | `workflows/blueprints/README.md`（移植蓝图） | `commit 322ba54`、`native/edit_executor.py` |
 | P2 | **native 多引擎接入** | 🟢 **首项已验收**（Flux.2 Klein 9B fp8 端到端跑通） | [P2-multi-engine.md](./P2-multi-engine.md) | commit `f82457d` + 2026-10-01 端到端任务 `f806a6edb0af4277`（1235 pytest pass / mypy 0 err / 512² 243s 出图 335 KB） |
-| P2 | **VLM 看图聊天** | 🟢 M1 已验收（commit `2ed1534`）；**M2/M3/M4/M5/M6 已落地**（`77b7e3c` / `f6c75f3` / `0821a45` / `acd4bf7`）+ 装配接线 `096ce57` | [P2-vlm-chat.md](./P2-vlm-chat.md) | Agent 通道多模态输入 + 内容过滤 + 前端问 AI/图气泡 + 编辑指令桥接均已通过门禁；唯一遗留 = 真实多模态前向（需 Qwen3-VL HF 目录含 config.json，跑 `scripts/preflight_qwen3vl.py` 闭环） |
+| P2 | **VLM 看图聊天** | 🟢 M1 已验收（commit `2ed1534`）；**M2/M3/M4/M5/M6 已落地**（`77b7e3c` / `f6c75f3` / `0821a45` / `acd4bf7`）+ 装配接线 `096ce57` | [P2-vlm-chat.md](./P2-vlm-chat.md) | Agent 通道多模态输入 + 内容过滤 + 前端问 AI/图气泡 + 编辑指令桥接均已通过门禁；**M1 已于 2026-10-02 返工**（推理路径 transformers → comfy_kernel，权重无需 HF config.json）；唯一遗留 = `clip.generate` 真实前向（本机可用显存 7.95 GiB 不足 9.35 GB 权重，需腾出 ≥10 GiB 后跑 `scripts/preflight_qwen3vl.py` 闭环） |
 | P3 | **LoRA 训练模块** | 🟡 已立项（T-34 决策=是，2026-10-01）· 待设计选型 | [P3-lora-training.md](./P3-lora-training.md) | 决策记录 + 约束分析；训练后端选型（AI-Toolkit vs 自扩展）与 reference_repos 就位后进入 T-12/T-13 设计 |
 
 ## 判定原则（P2 为何「可选」）
@@ -33,7 +33,7 @@
 
 - [ ] 任一 P2 升为「待办」时，将其文档状态由 🔲 改为 🟡 并填写验收证据。
 - [x] P2 多引擎首项（Flux.2 Klein 9B）已验收；后续候选引擎（Qwen_image_native / krea2_turbo_native 等）待触发条件满足时按 `P2-multi-engine.md` 步骤接入。
-- [x] P2 VLM 看图聊天立项：M1-M6 里程碑已写入 `P2-vlm-chat.md` 实施任务清单；**2026-10-01 用户裁定「全部都做」**，M1 已验收（commit `2ed1534`），**M2/M3/M4（`77b7e3c`/`f6c75f3`/`0821a45`）、M5/M6（`0821a45`/`acd4bf7`）、装配接线（`096ce57`）已落地并通过门禁**（远端未 push）。仅真实多模态前向待 Qwen3-VL 权重目录含 `config.json` 后由 `scripts/preflight_qwen3vl.py` 闭环。
+- [x] P2 VLM 看图聊天立项：M1-M6 里程碑已写入 `P2-vlm-chat.md` 实施任务清单；**2026-10-01 用户裁定「全部都做」**，M1 已验收（commit `2ed1534`），**M2/M3/M4（`77b7e3c`/`f6c75f3`/`0821a45`）、M5/M6（`0821a45`/`acd4bf7`）、装配接线（`096ce57`）已落地并通过门禁**（远端未 push）。**M1 已完成 comfy_kernel 返工（2026-10-02）**：`_chat_sync`/`_load_model` 改走 `comfy.sd.load_clip` → `clip.tokenize/generate/decode`，不再需要 HF 目录；仅 `clip.generate` 真实前向待腾出 ≥10 GiB 显存后由 `scripts/preflight_qwen3vl.py` 闭环。
 - [x] 学习报告借鉴 38 项归口：见 [learning-report-tasks.md](./learning-report-tasks.md)；**分组 ① T-01~T-05 已修正入库（commit `5fb7517`+`f6f5268`），T-06 因 reference_repos 缺失阻塞**；领域 B/E/G 分别挂到 P2 各里程碑。
 - [x] P3 LoRA 训练立项：T-34 决策=是（2026-10-01），见 [P3-lora-training.md](./P3-lora-training.md)；训练后端选型（AI-Toolkit vs 自扩展）与 reference_repos 就位后进入 T-12/T-13 设计。
 

@@ -1,7 +1,8 @@
 # P2 — VLM 看图聊天（后续可选演进）
 
-> 状态：🟢 **M1 已验收、M2-M6 已落地**（2026-10-01）；唯一遗留 = 真实多模态前向需 Qwen3-VL 的 HF
-> 目录含 `config.json` 后由 `scripts/preflight_qwen3vl.py` 闭环（本仓离线，不联网下载）。
+> 状态：🟢 **M1 已验收 + 已返工（2026-10-02）、M2-M6 已落地**；M1 推理路径已从 transformers 换成
+> comfy_kernel（权重无需 HF `config.json`）；**唯一遗留 = `clip.generate` 真实前向尚未实跑**
+> （本机可用显存/内存均不足，需腾出 ≥10 GiB 显存后跑 `scripts/preflight_qwen3vl.py` 闭环）。
 > 关联：`docs/roadmap/README.md`（总索引）
 > 立项检索结论（2026-10-01 当时）：全仓 `grep -rni "vlm\|看图\|image chat"` 仅命中 vendored 内核里的
 > 零星变量名（`comfy_kernel/.../hidream_o1/conditioning.py`、`nodes_boogu.py` 的视觉塔），**非本平台功能**。
@@ -93,7 +94,10 @@
 > 已新增 `scripts/preflight_qwen3vl.py` 作为实机验证脚本：当 `engines.qwen3_vl_8b_native.local_model_dir`
 > 指向含 `config.json` 的本地目录时，脚本会真加载权重 + processor + `model.generate` 并解码；
 > 当前离线下脚本以退出码 2（SKIPPED）清晰退出，不静默降级、不联网下载。
-> **待办**：下载 Qwen3-VL-8B 到本地并配置 `local_model_dir` 后重跑 preflight，闭环真实前向验证（M1 验收的最后一环）。
+> **待办（已于 2026-10-02 随返工改写）**：不再需要下载任何东西（权重本就在），也不再需要
+> `local_model_dir` 指向 HF 目录；改为**腾出 ≥10 GiB 显存**后跑
+> `py -3.12 scripts/preflight_qwen3vl.py --image <图>` 闭环真实前向验证（M1 验收的最后一环）。
+> 该「离线阻断」结论本身已于 2026-10-02 被下方实证推翻：阻断的根因是**推理路径选错**，不是缺文件。
 
 > ⚠️ **上述「离线阻断」结论已于 2026-10-02 实证推翻（重要更正）**
 >
@@ -112,7 +116,7 @@
 > | 生成实现 | `comfy_kernel/comfy/text_encoders/llama.py:1124` | `BaseGenerate.generate(embeds, max_length, temperature, top_k, top_p, …, deepstack_embeds, visual_pos_masks)` + `logits()` 优先用 `model.lm_head` |
 > | 架构 config | `comfy_kernel/comfy/text_encoders/llama.py:350` | `class Qwen3VL_8BConfig(Qwen3_8BConfig)` |
 > | tokenizer | `comfy_kernel/comfy/text_encoders/qwen25_tokenizer/` | `vocab.json` + `merges.txt` + `tokenizer_config.json`（`Qwen2Tokenizer` 可直接加载） |
-> | 图像预处理 | `comfy_kernel/comfy/text_encoders/qwen_vl.py:9` | `process_qwen2vl_images(patch_size=14, temporal_patch_size=2, merge_size=2)`：resize→归一化→patchify |
+> | 图像预处理 | `comfy_kernel/comfy/text_encoders/qwen_vl.py:9` | `process_qwen2vl_images(...)`：resize→归一化→patchify。**注意 Qwen3-VL 实际以 `patch_size=16` 调用**（见 `qwen3vl.py:65`，虽与 `qwen_vl.py` 的默认值 14 同名参数不同值）——以 `qwen3vl.py` 的调用点为准，不是 `qwen_vl.py` 默认值 |
 > | 引擎已注册 | `config.yaml:172 models.engines.qwen3_vl_8b_native` | `role: vlm`、`comfy_source_dir: comfy_kernel`、text_encoder 指向该权重 |
 >
 > **旁证**：ComfyUI-aki-v3 侧 `ComfyUI/models/text_encoders/Qwen-Image-2.1/` 同样是**只有一个裸 safetensors**、
@@ -120,9 +124,34 @@
 > Python config（如 `Qwen3VL_8BConfig`）+ 内置 tokenizer 目录来加载，**从不需要 HF 目录**。
 >
 > **因此 M1 待办改为**：把 `native/vlm_engine.py` 的 `_chat_sync` 从 transformers 路径改为
-> `comfy_kernel` 路径（组装 `Qwen3VL` → `process_qwen2vl_images` → tokenizer 注入 `<|image_pad|>`(151655)
-> → `Qwen3VL.generate(deepstack_embeds=…, visual_pos_masks=…)`），再用 `scripts/preflight_qwen3vl.py`
-> 实跑闭环。`preflight_qwen3vl.py` 当前的 transformers 分支应当随之替换/重写。
+> `comfy_kernel` 路径，再用 `scripts/preflight_qwen3vl.py` 实跑闭环。
+>
+> ### ✅ M1 返工落地状态（2026-10-02）
+>
+> **已落地**：`_chat_sync` / `_load_model` 已切到 comfy_kernel，`scripts/preflight_qwen3vl.py`
+> 的 transformers 分支已整段替换为 comfy 实跑（含 `--device cpu` 回落），单测补齐（6→10 + 新文件 5）。
+>
+> **已实证**（不依赖 9.35GB 权重驻留，故 CI/离线可复跑）：
+> - `detect_te_model(真实权重头)` → `TEModel.QWEN3VL_8B`（`tests/native/test_vlm_engine_comfy_path.py`）
+> - 权重头含 `lm_head*` 生成头 + `model.visual.*` 视觉塔 + DeepStack 判定键
+> - `Qwen3VLTokenizer` 把 `[1,H,W,3]` 图片张量接进序列（占位符被就地换成 image embed dict）
+> - `process_qwen2vl_images(patch_size=16, mean=std=0.5)` 数值自洽（patch 数 == grid_h*grid_w）
+> - `_resolve_qwen3vl_weight` 经 `config_models.resolve_model_path` 命中真实 `.safetensors`（不碰文件本体）
+>
+> **未实证（如实标注，未静默降级、未伪造通过）**：`clip.generate` 的**真实前向**尚未实跑——
+> 本机 2026-10-02 实测 **可用显存 7.95 GiB / 可用内存 6.1 GiB**，均低于该 9.35 GB 权重的驻留需求
+> （且 ComfyUI 正在占用约 4 GiB 显存）。按 `scripts/preflight_qwen3vl.py` 跑一次即可闭环，
+> 条件：**腾出 ≥10 GiB 显存**（关闭 ComfyUI 或空闲时段）后执行
+> `py -3.12 scripts/preflight_qwen3vl.py --image <某张图>`。
+>
+> **2026-10-02 已按此返工落地**（`native/vlm_engine.py` + `scripts/preflight_qwen3vl.py`）：
+> 不再手组装 `Qwen3VL`（量化元数据会被漏掉），而是走 comfy 官方装配面
+> `comfy.sd.load_clip([权重])` → 返回 `comfy.sd.CLIP`，再 `clip.tokenize(prompt, image=...)`
+> → `clip.generate(...)` → `clip.decode(...)`（与 `comfy_extras/nodes_textgen.py#TextGenerate`
+> 同一条链路）。`<|image_pad|>`(151655) 由 `Qwen3VLTokenizer.tokenize_with_weights` 自动把占位符
+> 换成 image embed dict，调用方**不需要**手塞 token。权重路径复用了
+> `config_models.resolve_model_path`（与其余引擎同一套权威约定），`--model-dir` 参数语义由
+> 「HF 目录」改为「权重文件」。
 
 ### M2 · Agent 通道接收多模态输入（后端，≈1.5 天）
 - 目标：`POST /api/agent/chat` 请求体接受 `images: [{path|b64, role: "input"|"output"}]`，VLM 编码后作为条件前缀注入。
