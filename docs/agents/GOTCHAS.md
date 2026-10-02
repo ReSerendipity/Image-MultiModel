@@ -125,3 +125,20 @@
 - **接线全部保持向后兼容**：`sub_paths`、`guidance`（0=不注入）、`text_encoder_paths`（缺省回落单 TE）三者缺省时历史引擎返回值与改动前**逐字相同**（`tests/native/test_flux1_dev_native.py` 里有对应的空选项断言）。
 - **测试做了变异验证**：分别把「`te_list` 退化为单 TE」「`guidance` 注入短路」「`resolve_engine_load_options` 不补 `text_encoder_paths`」三处改坏，测试**各自**如期变红（rc=1），确认 18 例不是空断言。
 - **首次发现**：2026-10-02（P2-multi-engine D 项 FLUX preflight 实跑：256²/4 步 euler+simple，采样 15.3s，`outputs/_preflight_flux1_dev/flux1_euler_simple.png` 目检为清晰真实感的橘白猫趴木桌，与 prompt `a cat sitting on a wooden table` 吻合）
+
+| 45 | **拿外部训练器训自家模型：`load_state_dict(strict=False)` 会把「结构错配」变成静默成功** | T-12 训练后端选型 POC：评估 sd-scripts 的 `lumina_train.py` 能否训本机的 Z-Image-Turbo | `library/lumina_util.py:47` 硬编码 `NextDiT_2B_GQA_patch2_Adaln_Refiner`，随后 `model.load_state_dict(state_dict, strict=False, assign=True)`（第 62 行）。NextDiT 的子模块只有 `t_embedder / cap_embedder / context_refiner / x_embedder / noise_refiner / layers / norm_final / final_layer / rope_embedder`，**没有 `dec_net`**；而本机 comfy 把 Z-Image 识别为 `zimage_pixel`（`comfy/model_detection.py:626`，读 `x_embedder.weight`、`dec_net.final_layer.linear.weight`、`dec_net.input_embedder.embedder.0.weight`）—— 像素空间自解码架构。**`strict=False` 意味着键名对不上、整块 `dec_net` 漏加载都不会报错**，训练照常启动，最后得到的是结构错乱的模型，排查时一点错误线索都没有 | ① **架构适配必须先看「训练器硬编码了什么结构」再谈能不能训**，不能只看「顶层有没有 `lumina_train.py` 这种脚本名」：名字对 ≠ 结构对；② 判断能否加载某权重，要拿**两侧的子模块清单**逐条对照（本次是 `NextDiT` 的 9 个子模块 vs `zimage_pixel` 的 `dec_net` 分支）；③ 选型阶段若被 `strict=False` 蒙混过关，代价是「训完了才发现图不对」而非「启动时就报错」，务必在**加载阶段**自己加严格校验（键集合差集 + 形状比对）而不是依赖上游；④ 已写进 `P3-lora-training.md` 事实约束表，避免下次再评估 sd-scripts 的「LUMINA 路径」时误判为「能训 Z-Image」 | 2026-10-02（T-28 sd-scripts LUMINA 训练深读，已完整克隆 `reference_repos/sd-scripts` 后读源码） |
+
+### 45.1 路线图里的「路径 B：基于 aki-v3 训练节点（本机已装）」前提不成立
+
+- **触发场景**：`P3-lora-training.md` 原写「选路径 B：基于 ComfyUI aki-v3 的 LoRA 训练能力（本机已装）」。
+- **实证**：`C:\Users\Doro\APP\ComfyUI-aki-v3\ComfyUI\custom_nodes\` 下共 17 个包（BatchPromptLoader / ComfyUI-EsesImageCompare / ComfyUI-GGUF / ComfyUI-Inspire-Pack / ComfyUI-KJNodes / ComfyUI-Manager / ComfyUI-MiniMaxH3-Spectrum / ComfyUI-ReservedVRAM / ComfyUI-SeedVR2_VideoUpscaler / ComfyUI-VideoHelperSuite / ComfyUI-sol-attn / ComfyUI_Dynamic-RAMCache / ComfyUI_IPAdapter_plus / ComfyUI_PromptQueue / Nvidia_RTX_Nodes_ComfyUI / rgthree-comfy / websocket_image_save.py.example），**训练类节点一个都没有**；对 `train / lora / optimizer / optim` 关键字 grep 也无训练相关命中。
+- **结论**：路径 B 等于从零自研 LoRA 训练器 + 优化器 + 采样，直接否决（已同步改 roadmap）。**「本机已装」这种措辞必须先 enum 一遍目录再写**。
+- **首次发现**：2026-10-02（T-12 选型 POC）
+
+### 45.2 大仓 `git clone` 在 GitHub 上不稳：`fatal: the remote end hung up unexpectedly`，改用 GitHub API 按需单文件拉
+
+- **触发场景**：为 T-28 / T-12 研究需要把 AI-Toolkit 拉到 `reference_repos/AI-Toolkit`。
+- **现象**：`git clone --depth 1` 连试两次都在收尾阶段被远端掐断（第一次 7m02s、第二次 8m29s，均 `fatal: the remote end hung up unexpectedly`）；而同网络下 sd-scripts（小仓）克隆**一次成功**；`raw.githubusercontent.com` 也随缘（502 / TimeoutError）。
+- **可行解**：**`api.github.com` 的 contents 接口最稳**（列表 + base64 取文件内容都能成），于是改成「按需单文件拉」：`https://api.github.com/repos/{owner}/{repo}/contents/{path}` → `base64.b64decode(content)`；列表用 `contents/{dir}` 过滤 `type=='dir'/'file'`。AI-Toolkit 的 `z_image.py` / `resolver.py` / `flux.py` / `README.md` 四次拉取全部成功，耗时十几秒。
+- **正确做法**：① 研究阶段（只读几个关键文件做选型）**默认走 API 按需拉**，别先花 10 分钟 clone 一个 100MB+ 的仓；② 只有确认要「装起来跑」时才整仓 clone，且做好重试/镜像/codeload zip 三档退路；③ 拉取失败要重试 2~3 次（502 多为瞬时），并在脚本里带 `retry + sleep`，不要一次失败就判定「不能拉」。
+- **首次发现**：2026-10-02（T-12 选型 POC，`reference_repos/AI-Toolkit-src/`）
