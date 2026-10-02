@@ -48,7 +48,7 @@
 |---|---|---|---|
 | T-28 | sd-scripts LUMINA 训练深读 | ✅ **2026-10-02 完成**：`load_lumina_model` 硬编码 `NextDiT_2B_GQA_patch2_Adaln_Refiner`（`library/lumina_util.py:47`），`NextDiT` 无 `dec_net`；Z-Image 全仓 0 匹配 → 结论「仅适用于 Lumina 官方 NextDiT 权重，不适用于本机 Z-Image」 | 无（reference_repos/sd-scripts 已克隆） |
 | T-22 | Caption / Tagger 评估 | ✅ **2026-10-02 完成**：**不引入 SDNext**——改用 AI-Toolkit 内置 `extensions_built_in/captioner` + `dataset_tools`。例外：若将来要 WD14/DeepDanbooru 传统 tagger 需另接节点 | 无 |
-| T-12 | 训练模块设计 / 实现 | 🟡 **三件套权重全部就绪并验证**；训练 job 首次启动中（AI-Toolkit 运行时依赖补齐阶段） | AI-Toolkit 完整工作区已落地（`reference_repos/AI-Toolkit/ai-toolkit-main`，codeload zip 通路）；transformer / TE / VAE 三条权重管线**均实证通过**；当前在补 AI-Toolkit 的运行时依赖（oyaml / albumentations / timm 等，本机 pip 极慢），补齐后跑最小 Z-Image LoRA job（512²/10 步/smoke） |
+| T-12 | 训练模块设计 / 实现 | ✅ **2026-10-02 完成**：最小 Z-Image LoRA job **实跑通过（rc=0）**，产物 LoRA **可被 `native/lora.py` 加载** | 见下方「T-12 实跑记录」 |
 | T-13 | 训练 UI（轻前端 + 状态回写薄层） | ⬜ 待 T-12 实跑验证后设计 | T-12 最小 job 跑通 |
 | T-14~T-16 | 其余训练相关（数据准备 / 采样 / 元数据） | ⬜ 未启动 | T-12 代码接入 |
 
@@ -68,12 +68,36 @@
 - 项目当前纯推理架构（已接入 5 个 native 引擎），训练模块需新建独立子系统（不与推理任务队列冲突）；
   训练产物要能被现有 `native/lora.py` 栈加载复用。
 
+## T-12 实跑记录（2026-10-02，最小 smoke job）
+
+**命令**：`cd reference_repos/AI-Toolkit/ai-toolkit-main && <AI-Toolkit-env python> run.py <job.yaml>`（`rc=0`）
+
+**job 配置**（512² / 10 步 / rank 4 / adamw lr 1e-4 / bf16 / `cache_text_embeddings` / `low_vram`）：
+- `model.name_or_path` = 本机 comfy Z-Image 单文件（fp8，带 `comfy_quant` 标记）
+- `model.extras_name_or_path` = 本机组装的 extras 目录（`transformer/config.json` + 转换后的 `text_encoder/` + `vae/` + `tokenizer/`，全 HF 布局）
+- `datasets` = 4 张 512² 图 + caption
+
+**实测过程**：模型加载 → LoRA 网络 **240 modules** → 4 图分桶 `512x512` → latent 落盘缓存 →
+基线采样 → 10 步训练（loss 从 `3.73e-01` 走到 `3.65e-01`，约 85–115 s/步，RTX 5070 Ti Laptop 11.9GB）→ 存档 + 采样。
+
+**产物**（`zimage_lora_smoke/`）：`zimage_lora_smoke.safetensors` **21.3 MB**（480 键 = 240 模块 × lora_A/lora_B）、
+step-5 中间存档、`optimizer.pt`、基线/最终采样图各 1 张。
+
+**产物能否被 `native/lora.py` 加载**：✅ **能，且无静默丢弃**——走 comfy `load_lora_for_models` 实测
+`patches = 180`、`"lora key not loaded"` 告警 **0 条**。180 = 30 层 × 6 模块
+（`feed_forward.w1/w2/w3`、`adaLN_modulation.0`、`attention.qkv`、`attention.out`）；
+diffusers 布局的 `to_q/to_k/to_v` 被 comfy **融合映射**到自己的 `qkv`（3→1，故 240 模块 → 180 patch，少 60），
+`to_out.0` → `out`。判据是**「未加载告警为 0」而不是 patch 数**（详见 GOTCHAS #47）。
+
+**口径边界（不许抬高）**：这是**管线跑通**的实证，**不是**「训出了好 LoRA」——10 步、4 张图、无收敛验证，
+产物的实际视觉效果未评测。真实训练（数据量/步数/分辨率/评测）属后续 T-14~T-16 与 T-13 前端的工作。
+
 ## 验收（本 P3 立项目标）
 
 - [x] T-34 决策记录（本文件 + README 索引）。
 - [x] 训练后端选型 POC（2026-10-02 源码级实证）：路径 A（AI-Toolkit）胜出；路径 B 前提被证伪；sd-scripts 对 Z-Image 不适用。
 - [x] T-22（Caption / Tagger 评估，改为不引入 SDNext，用 AI-Toolkit 内置 captioner + dataset_tools）。
 - [x] T-28（sd-scripts LUMINA 深读：只吃 NextDiT_2B，且 `strict=False` 会静默错配）。
-- [ ] T-12 代码接入：安装 AI-Toolkit → 最小 Z-Image LoRA job 跑通 → 产出 LoRA 能被 `native/lora.py` 加载。
+- [x] T-12 代码接入：安装 AI-Toolkit → 最小 Z-Image LoRA job 跑通（rc=0）→ 产出 LoRA 能被 `native/lora.py` 加载（180 patches / 0 条未加载告警）。
 - [ ] T-13 轻前端 / 状态回写薄层（待 T-12 最小 job 跑通后设计）。
 - [ ] T-14~T-16（数据准备 / 采样 / 元数据）随 T-12 推进。
