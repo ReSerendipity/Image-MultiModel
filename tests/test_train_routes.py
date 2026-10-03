@@ -363,6 +363,66 @@ def test_dataset_validate_default_does_not_decode(tmp_path):
     assert body["ok"] is True
 
 
+def _make_valid_dataset(folder: Path) -> None:
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "a.png").write_bytes(b"\x89PNG")  # 默认 preflight 不解码，文件级校验通过即可
+    (folder / "a.txt").write_text("cat", encoding="utf-8")
+
+
+def _preflight_payload(tmp_path: Path, **over: object) -> dict:
+    model = tmp_path / "model.safetensors"
+    model.write_bytes(b"\x00")
+    extras = tmp_path / "extras"
+    extras.mkdir(exist_ok=True)
+    ds = tmp_path / "ds"
+    _make_valid_dataset(ds)
+    return {
+        "name": "preflight_lora",
+        "model_path": str(model),
+        "extras_path": str(extras),
+        "dataset_folder": str(ds),
+        "steps": 4,
+        **over,
+    }
+
+
+def test_preflight_ok(tmp_path):
+    runner = FakeRunner(tmp_path / "training")
+    with _client_with(runner)[0] as c:
+        resp = _csrf_post(c, "/api/train/jobs/preflight", _preflight_payload(tmp_path))
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["spec_errors"] == []
+    assert body["dataset"]["ok"] is True
+
+
+def test_preflight_reports_dataset_problem(tmp_path):
+    # 数据集缺 caption → spec 通过但 dataset 不 ok
+    runner = FakeRunner(tmp_path / "training")
+    payload = _preflight_payload(tmp_path)
+    ds = tmp_path / "ds"
+    (ds / "a.txt").unlink()  # 移除 caption，制造缺 caption
+    with _client_with(runner)[0] as c:
+        body = _csrf_post(c, "/api/train/jobs/preflight", payload).json()
+    assert body["ok"] is False
+    assert body["dataset"] is not None
+    assert body["dataset"]["ok"] is False
+    assert len(body["dataset"]["missing_caption"]) == 1
+
+
+def test_preflight_reports_spec_error(tmp_path):
+    # 坏 name → 规格错，且不再跑数据集校验（dataset 为 None）
+    runner = FakeRunner(tmp_path / "training")
+    payload = _preflight_payload(tmp_path, name="bad name")
+    with _client_with(runner)[0] as c:
+        body = _csrf_post(c, "/api/train/jobs/preflight", payload).json()
+    assert body["ok"] is False
+    assert body["spec_errors"]
+    assert "name 非法" in body["spec_errors"][0]
+    assert body["dataset"] is None
+
+
 def test_training_package_exports():
     """__init__ 的公开面（避免重构时把入口悄悄改名）。"""
     assert hasattr(training_pkg, "TrainJobSpec")

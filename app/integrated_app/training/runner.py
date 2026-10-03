@@ -33,7 +33,8 @@ from pathlib import Path
 from typing import Any
 
 from . import handoff, progress, store
-from .spec import TrainJobSpec
+from .dataset import DatasetError, validate_dataset
+from .spec import TrainJobSpec, TrainSpecError
 
 logger = logging.getLogger(__name__)
 
@@ -206,6 +207,15 @@ class TrainingRunner:
         logger.info("训练任务已提交: job_id=%s name=%s steps=%s（aitk=%s）", job_id, spec.name, spec.steps, aitk_root)
         return self.load(job_id) or record
 
+    def preflight(
+        self, spec: TrainJobSpec, *, check_resolution: bool = False, min_size: int = 256, max_size: int = 2048
+    ) -> dict[str, Any]:
+        """提交前综合自检（不启动训练）：聚合规格校验 + 数据集可用性。
+
+        见模块级 :func:`preflight_spec`（本方法只是实例包装，便于与 submit 同对象调用）。
+        """
+        return preflight_spec(spec, check_resolution=check_resolution, min_size=min_size, max_size=max_size)
+
     # ── 查询 ──────────────────────────────────────────────
     def load(self, job_id: str) -> dict[str, Any] | None:
         return self.store.load(job_id)
@@ -321,6 +331,55 @@ class TrainingRunner:
     def _forget(self, job_id: str) -> None:
         with self._lock:
             self._procs.pop(job_id, None)
+
+
+def preflight_spec(
+    spec: TrainJobSpec,
+    *,
+    check_resolution: bool = False,
+    min_size: int = 256,
+    max_size: int = 2048,
+) -> dict[str, Any]:
+    """提交前的综合自检（不启动训练）：聚合「规格校验 + 数据集可用性」。
+
+    与 :meth:`TrainingRunner.submit` 解耦——submit 仍只校验规格（保持"立即返回
+    job_id"契约），preflight 是可选的"先体检再上车"入口：规格错 / 图缺 caption /
+    图损坏 / 分辨率越界 都会在真正的 22 分钟训练之前被挡下来。
+
+    模块级函数（不依赖 TrainingRunner 实例），供路由与 CLI 直接复用，避免为了只读
+    校验而实例化带 GPU 锁 / 训练根的 runner。
+
+    Returns:
+        ``{"ok": bool, "spec_errors": list[str], "dataset": dict | None}``。
+        规格校验失败时不跑数据集校验（dataset_folder 可能根本不存在），``dataset`` 为 None。
+    """
+    result: dict[str, Any] = {"ok": True, "spec_errors": [], "dataset": None}
+    try:
+        spec.validate()
+    except TrainSpecError as e:
+        result["ok"] = False
+        result["spec_errors"].append(str(e))
+    if result["spec_errors"]:
+        return result
+    try:
+        report = validate_dataset(
+            spec.dataset_folder,
+            caption_ext="txt",
+            strict=False,  # 取完整报告（含 missing_caption 等明细），由 report.ok 驱动 result["ok"]
+            check_resolution=check_resolution,
+            min_size=min_size,
+            max_size=max_size,
+        )
+    except DatasetError as e:
+        # 防御性兜底：strict=False 下 validate_dataset 不抛，但契约变更时仍安全
+        result["ok"] = False
+        result["dataset"] = {"ok": False, "error": str(e)}
+    else:
+        dataset = report.to_dict()
+        result["dataset"] = dataset
+        if not dataset["ok"]:
+            result["ok"] = False
+    return result
 
 
 def aitk_root_env() -> str | None:

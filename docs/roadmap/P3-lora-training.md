@@ -50,7 +50,7 @@
 | T-22 | Caption / Tagger 评估 | ✅ **2026-10-02 完成**：**不引入 SDNext**——改用 AI-Toolkit 内置 `extensions_built_in/captioner` + `dataset_tools`。例外：若将来要 WD14/DeepDanbooru 传统 tagger 需另接节点 | 无 |
 | T-12 | 训练模块设计 / 实现 | ✅ **2026-10-02 完成**：最小 Z-Image LoRA job **实跑通过（rc=0）**，产物 LoRA **可被 `native/lora.py` 加载** | 见下方「T-12 实跑记录」 |
 | T-13 | 训练 UI（轻前端 + 状态回写薄层） | ✅ **2026-10-03 完成**：编排薄层实装 + **真跑实证**（2 步 job rc=0，进度/产物/移交全链路通）；UI 面由 AI-Toolkit 自带前端承担，本仓只做编排与状态回写 | 无（见下方「T-13 编排薄层实装记录」） |
-| T-14 | 数据准备（训练前数据集就绪校验） | 🟢 **2026-10-03 启动并完成两块**：① 文件级校验（图+同名 caption 齐全/非空）；② 解码级校验（Pillow 真实解码，暴露损坏图像 + 报告真实尺寸 + 标出分辨率越界） | 后续：caption 生成 / 多 caption 格式 |
+| T-14 | 数据准备（训练前数据集就绪校验） | 🟢 **2026-10-03 启动并完成三块**：① 文件级校验（图+同名 caption 齐全/非空）；② 解码级校验（Pillow 真实解码，暴露损坏图像 + 报告真实尺寸 + 标出分辨率越界）；③ 提交前综合自检 `preflight_spec`（聚合规格校验 + 数据集可用性，独立入口不阻塞 submit 的「立即返回 job_id」契约） | 后续：caption 生成 / 多 caption 格式 |
 | T-14~T-16 | 其余训练相关（数据准备 / 采样 / 元数据） | ⬜ 未启动 | T-12 代码接入 |
 
 ## 阻塞 / 前置
@@ -193,6 +193,44 @@ T-12 那类只用 `b"\x89PNG"` magic bytes 顶替的假图、下载截断图，�
 - `--check-resolution --min-size 16 --max-size 4096` → 分辨率异常清空，损坏仍 fatal → rc=1。
 - 真实 T-12 数据集（4×512²）`--check-resolution` 实测全 OK（尺寸在边界内、无损坏）。
 
+## T-14 收尾护栏（2026-10-03）：训练提交前综合自检 preflight
+
+**动机**：第一/二块给了「数据集就绪校验」能力，但训练提交入口 `TrainingRunner.submit` 仍只校验规格
+（`TrainJobSpec.validate`），且「立即返回 job_id」契约不允许在 submit 里做重 IO。需一个「先体检再上车」
+的独立入口——把规格校验与数据集可用性聚合成一次综合自检，在 22 分钟训练启动前挡下坏参数 / 坏数据集
+（规格错 / 图缺 caption / 图损坏 / 分辨率越界）。
+
+**设计取舍**：
+- 与 `submit` 解耦：preflight 是独立入口，`submit` 保持「立即返回 job_id」契约**不变**。
+- `preflight_spec` 设计为**模块级函数**（不依赖 `TrainingRunner` 实例），供路由与 CLI 直接复用——
+  避免为了只读校验而实例化带 GPU 锁 / 训练根的 runner。
+- 数据集校验用 `validate_dataset(..., strict=False)` 取**完整报告**（`missing_caption` / `corrupt_images` /
+  `resolution_issues` 等明细），由 `report.ok` 驱动 `result["ok"]`，而非 `strict=True` 抛异常丢失明细。
+- 规格校验失败时不跑数据集校验（`dataset_folder` 可能根本不存在），`dataset` 字段为 `None`。
+
+**新增/扩展**：
+
+| 文件 | 变更 |
+|---|---|
+| `app/integrated_app/training/runner.py` | 模块级 `preflight_spec(spec, *, check_resolution, min_size, max_size) -> dict{"ok","spec_errors","dataset"}`：先 `spec.validate()` 捕捉 `TrainSpecError`；通过后再 `validate_dataset(..., strict=False, ...)` 取完整报告；`TrainingRunner.preflight` 实例方法包装。`dataset` 在规格错时为 `None`。 |
+| `app/integrated_app/routes/train_routes.py` | 新增 `POST /api/train/jobs/preflight`（`TrainJobRequest` + `check_resolution / min_size / max_size` query，返回 `preflight_spec(...)` 结果）。 |
+| `scripts/preflight_train_job.py` | 新建 CLI：`--name/--model-path/--extras-path/--dataset-folder/--check-resolution/--min-size/--max-size/--json`，构造 `TrainJobSpec` 调 `preflight_spec`，可读文本 / JSON 输出，rc=0/1。 |
+| `tests/test_train_routes.py` | +3 例（`test_preflight_ok` / `test_preflight_reports_dataset_problem` / `test_preflight_reports_spec_error`）。 |
+
+**实测**（CLI / 端点）：
+- 规格 OK + 数据集 OK（默认不解码）→ `[OK] 通过` rc=0，`dataset.ok=True`。
+- 数据集缺 caption（移除同名 .txt）→ `[FAIL] 未通过`，`dataset.missing_caption` 含 1 项，rc=1。
+- 坏 name（含空格）→ 规格错，`spec_errors` 非空，`dataset=None`，rc=1。
+
+**踩坑实录（GOTCHAS #50）**：初版把 `def preflight_spec(` 误写在模块级（column 0），恰好落在
+`_require_backend` 方法之后、`submit` 方法之前——这导致 `TrainingRunner` 类在 `_require_backend` 处提前
+关闭，`submit / load / status / cancel / ... / _forget` 全部沦为 `preflight_spec` 内部的不可达嵌套函数，
+`dir(TrainingRunner)` 实测缺失 `cancel` / `preflight` 等全部类方法，复跑测试 9 FAILED
+（`'TrainingRunner' object has no attribute 'cancel'`）。修复：把 `preflight_spec` 整体搬到
+`TrainingRunner` 类结束之后（`_forget` 之后、`aitk_root_env` 之前）成为真正模块级函数，让 `submit` 起的方法
+重新归属类体。教训：在类体内新增模块级符号 / 函数时，务必核对缩进层级，`grep -nE "^(class |def )"`
+是快速验证类-函数归属的硬手段。
+
 ## 验收（本 P3 立项目标）
 
 - [x] T-34 决策记录（本文件 + README 索引）。
@@ -201,5 +239,5 @@ T-12 那类只用 `b"\x89PNG"` magic bytes 顶替的假图、下载截断图，�
 - [x] T-28（sd-scripts LUMINA 深读：只吃 NextDiT_2B，且 `strict=False` 会静默错配）。
 - [x] T-12 代码接入：安装 AI-Toolkit → 最小 Z-Image LoRA job 跑通（rc=0）→ 产出 LoRA 能被 `native/lora.py` 加载（180 patches / 0 条未加载告警）。
 - [x] T-13 轻前端 / 状态回写薄层（2026-10-03：编排薄层实装 + 真跑实证 2 步 job rc=0；**UI 面采用 AI-Toolkit 自带前端，本仓只做编排与状态回写**，见「T-13 编排薄层实装记录」）。
-- [x] T-14 数据准备（2026-10-03，两块）：① 文件级校验 `training/dataset.py` + `/api/train/datasets/validate` + `scripts/validate_lora_dataset.py`（真实 T-12 数据集 CLI rc=0、坏数据集 rc=1）；② 解码级预检（`check_resolution` 真实解码，暴露损坏图像 + 报告真实尺寸 + 标出分辨率越界，默认不跑保持向后兼容）。
+- [x] T-14 数据准备（2026-10-03，三块）：① 文件级校验 `training/dataset.py` + `/api/train/datasets/validate` + `scripts/validate_lora_dataset.py`（真实 T-12 数据集 CLI rc=0、坏数据集 rc=1）；② 解码级预检（`check_resolution` 真实解码，暴露损坏图像 + 报告真实尺寸 + 标出分辨率越界，默认不跑保持向后兼容）；③ 提交前综合自检 `preflight_spec`（`POST /api/train/jobs/preflight` + `scripts/preflight_train_job.py`，聚合规格校验 + 数据集可用性，不阻塞 submit 的「立即返回 job_id」契约）。
 - [ ] T-14~T-16（数据准备 / 采样 / 元数据）随 T-12 推进。

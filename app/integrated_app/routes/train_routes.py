@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field
 from ..config import get_config
 from ..training.dataset import validate_dataset
 from ..training.handoff import final_lora_path
-from ..training.runner import TrainingRunner, TrainingUnavailable
+from ..training.runner import TrainingRunner, TrainingUnavailable, preflight_spec
 from ..training.spec import TrainJobSpec
 from ..training.store import STATUS_RUNNING
 
@@ -134,6 +134,25 @@ async def datasets_validate(
         max_size=max_size,
     )
     return report.to_dict()
+
+
+@router.post("/jobs/preflight")
+async def preflight_job(
+    payload: TrainJobRequest,
+    request: Request,
+    check_resolution: bool = Query(False, description="真实解码每张图：暴露损坏/报告尺寸/标分辨率异常"),
+    min_size: int = Query(256, description="分辨率校验允许的最小边长"),
+    max_size: int = Query(2048, description="分辨率校验允许的最大边长"),
+) -> dict[str, Any]:
+    """POST /api/train/jobs/preflight — 提交前综合自检（不启动训练）。
+
+    聚合「规格校验（TrainJobSpec.validate：name/path/resolution/数值/dtype…）」与
+    「数据集可用性（validate_dataset：图+caption 齐全、无损坏、分辨率在界内）」，
+    在真正的 22 分钟训练之前把坏参数/坏数据集挡下来。返回 200 + 结构化报告
+    （``ok`` / ``spec_errors`` / ``dataset``），由客户端决定要不要继续 submit。
+    """
+    spec = _to_spec(payload)
+    return preflight_spec(spec, check_resolution=check_resolution, min_size=min_size, max_size=max_size)
 
 
 # ── 状态 ─────────────────────────────────────────────────
