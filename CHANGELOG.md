@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## \[Unreleased]
 
+### Fixed
+
+- **发版期修复（v1.3.0 发版全流程实测发现，2026-10-03）**：① P0 幽灵确认弹层——CSP `style-src 'self'` 剥离服务端内联 style 属性，`#appConfirm` 的 `style="display:none"` 失效叠加 CSS 类 `display:flex`，空确认框常驻 z-index 10000 挡死全新 profile 用户（`399de48`：模板内联样式全部类化 + `#appConfirm` CSS 默认隐藏 + `/static` 下发 `Cache-Control: no-cache` 修复升级后陈旧缓存 + 防回归测试 ×2）；② 壳 1.0.1——`resolve_runtime_dir` 与分层布局不符致装后 Python 无法启动 + 安装器内嵌 version.json 过期盖掉新版本（`48d7b36`）；③ 数据卷打包契约修正——comfy_kernel 随整包首发（`package_app.py` 有意排除内核，换载不替换）。
+
 ## \[1.3.0] - 2026-10-03
 
 ### Added
