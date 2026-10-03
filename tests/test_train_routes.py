@@ -304,7 +304,39 @@ def test_copy_into_lora_dir_refuses_junction(tmp_path, monkeypatch):
     assert "拒绝写入" in out["error"]
 
 
+def test_dataset_validate_rejects_relative_folder(tmp_path):
+    runner = FakeRunner(tmp_path / "training")
+    with _client_with(runner)[0] as c:
+        resp = c.get("/api/train/datasets/validate?folder=relative/ds")
+    assert resp.status_code == 400
+
+
+def test_dataset_validate_reports_problems(tmp_path):
+    runner = FakeRunner(tmp_path / "training")
+    ds = tmp_path / "ds"
+    ds.mkdir()
+    (ds / "a.png").write_bytes(b"\x89PNG")  # 缺 caption
+    with _client_with(runner)[0] as c:
+        body = c.get(f"/api/train/datasets/validate?folder={ds}").json()
+    assert body["ok"] is False
+    assert body["image_count"] == 1
+    assert len(body["missing_caption"]) == 1
+
+
+def test_dataset_validate_ok(tmp_path):
+    runner = FakeRunner(tmp_path / "training")
+    ds = tmp_path / "ds"
+    ds.mkdir()
+    (ds / "a.png").write_bytes(b"\x89PNG")
+    (ds / "a.txt").write_text("cat", encoding="utf-8")
+    with _client_with(runner)[0] as c:
+        body = c.get(f"/api/train/datasets/validate?folder={ds}").json()
+    assert body["ok"] is True
+    assert body["paired_count"] == 1
+
+
 def test_training_package_exports():
     """__init__ 的公开面（避免重构时把入口悄悄改名）。"""
     assert hasattr(training_pkg, "TrainJobSpec")
     assert hasattr(training_pkg, "TrainingRunner")
+    assert hasattr(training_pkg, "validate_dataset")

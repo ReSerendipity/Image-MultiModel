@@ -24,6 +24,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from ..config import get_config
+from ..training.dataset import validate_dataset
 from ..training.handoff import final_lora_path
 from ..training.runner import TrainingRunner, TrainingUnavailable
 from ..training.spec import TrainJobSpec
@@ -99,6 +100,27 @@ def _runner_from_request(request: Request) -> TrainingRunner:
 
 def _to_spec(payload: TrainJobRequest) -> TrainJobSpec:
     return TrainJobSpec(**payload.model_dump())
+
+
+@router.get("/datasets/validate")
+async def datasets_validate(
+    request: Request,
+    folder: str = Query(..., description="数据集目录（建议绝对路径）"),
+    caption_ext: str = Query("txt", description="caption 后缀，不含点"),
+) -> dict[str, Any]:
+    """GET /api/train/datasets/validate?folder=<dir>&caption_ext=txt
+
+    训练前先校验数据集（图 + 同名 caption 齐全、caption 非空）——T-14 数据准备第一块。
+    只校验、不搬运、不改写；校验失败时返回 200 + 报告（``ok:false``），
+    路径非法/目录不存在传参错误才返回 400。
+    """
+    from pathlib import Path
+
+    path = Path(folder)
+    if not path.is_absolute():
+        raise HTTPException(400, detail=f"folder 必须是绝对路径（收到 {folder!r}）")
+    report = validate_dataset(path, caption_ext=caption_ext, strict=False)
+    return report.to_dict()
 
 
 # ── 状态 ─────────────────────────────────────────────────

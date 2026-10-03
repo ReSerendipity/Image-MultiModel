@@ -50,6 +50,7 @@
 | T-22 | Caption / Tagger 评估 | ✅ **2026-10-02 完成**：**不引入 SDNext**——改用 AI-Toolkit 内置 `extensions_built_in/captioner` + `dataset_tools`。例外：若将来要 WD14/DeepDanbooru 传统 tagger 需另接节点 | 无 |
 | T-12 | 训练模块设计 / 实现 | ✅ **2026-10-02 完成**：最小 Z-Image LoRA job **实跑通过（rc=0）**，产物 LoRA **可被 `native/lora.py` 加载** | 见下方「T-12 实跑记录」 |
 | T-13 | 训练 UI（轻前端 + 状态回写薄层） | ✅ **2026-10-03 完成**：编排薄层实装 + **真跑实证**（2 步 job rc=0，进度/产物/移交全链路通）；UI 面由 AI-Toolkit 自带前端承担，本仓只做编排与状态回写 | 无（见下方「T-13 编排薄层实装记录」） |
+| T-14 | 数据准备（训练前数据集就绪校验） | 🟡 **2026-10-03 启动**：新增 `training/dataset.py` + `/api/train/datasets/validate` + `scripts/validate_lora_dataset.py`，校验「图 + 同名 caption 齐全 / caption 非空」；真实 T-12 数据集实跑 rc=0、坏数据集 rc=1 | 后续：caption 生成 / 分辨率批量预检 / 多 caption 格式 |
 | T-14~T-16 | 其余训练相关（数据准备 / 采样 / 元数据） | ⬜ 未启动 | T-12 代码接入 |
 
 ## 阻塞 / 前置
@@ -144,6 +145,23 @@ diffusers 布局的 `to_q/to_k/to_v` 被 comfy **融合映射**到自己的 `qkv
 **口径边界**：这是**编排链路跑通**的实证（薄层能把事情送进 AI-Toolkit 并回读状态与产物），
 **不是**「训练 UI 已完成」——交互界面仍是 AI-Toolkit 自带前端；真实训练的数据量/步数/收敛/视觉评测属 T-14~T-16。
 
+## T-14 数据准备第一块（2026-10-03）：训练前数据集就绪校验
+
+**动机**：T-12 实跑一次 22 分钟，坏数据（缺 caption / 空 caption）会在训练进程里才炸。薄层应在
+提交训练前先确认数据集满足最低可用条件。
+
+**新增**：
+
+| 文件 | 职责 |
+|---|---|
+| `app/integrated_app/training/dataset.py` | `validate_dataset(folder, caption_ext, strict)` → `DatasetReport`（图像数 / 配对数 / 缺 caption / 空 caption / 其它文件）；`strict=True` 时缺/空/无图抛 `DatasetError` |
+| `app/integrated_app/routes/train_routes.py` | `GET /api/train/datasets/validate?folder=<绝对路径>&caption_ext=txt`：非法路径 → 400，其余返回报告（`ok` 字段） |
+| `scripts/validate_lora_dataset.py` | CLI：`python scripts/validate_lora_dataset.py <dir> [--caption-ext txt] [--strict] [--json]`，可用 rc=0、不可用 rc=1、传参错误 rc=2 |
+
+**实测**：对 T-12 真实数据集（`C:\Users\Doro\AppData\Local\Temp\zimage_lora_ds`，4 图 4 caption + 1 个 `.aitk_size.json` 缓存标记）跑 CLI → `[OK] 数据集可用` rc=0；对缺 caption 的目录 → `[FAIL] 数据集不可用` rc=1。
+
+**口径边界**：只做文件级校验（图 + 同名 caption 存在且非空），**不解码图像查真实分辨率**（AI-Toolkit 会按 `resolution` 分桶下采样，分辨率不是数据集有效性的阻断项）；不改写、不搬运任何文件。
+
 ## 验收（本 P3 立项目标）
 
 - [x] T-34 决策记录（本文件 + README 索引）。
@@ -152,4 +170,5 @@ diffusers 布局的 `to_q/to_k/to_v` 被 comfy **融合映射**到自己的 `qkv
 - [x] T-28（sd-scripts LUMINA 深读：只吃 NextDiT_2B，且 `strict=False` 会静默错配）。
 - [x] T-12 代码接入：安装 AI-Toolkit → 最小 Z-Image LoRA job 跑通（rc=0）→ 产出 LoRA 能被 `native/lora.py` 加载（180 patches / 0 条未加载告警）。
 - [x] T-13 轻前端 / 状态回写薄层（2026-10-03：编排薄层实装 + 真跑实证 2 步 job rc=0；**UI 面采用 AI-Toolkit 自带前端，本仓只做编排与状态回写**，见「T-13 编排薄层实装记录」）。
+- [x] T-14 数据准备第一块（2026-10-03）：训练前数据集就绪校验 `training/dataset.py` + `/api/train/datasets/validate` + `scripts/validate_lora_dataset.py`；真实 T-12 数据集 CLI rc=0、坏数据集 rc=1。
 - [ ] T-14~T-16（数据准备 / 采样 / 元数据）随 T-12 推进。
