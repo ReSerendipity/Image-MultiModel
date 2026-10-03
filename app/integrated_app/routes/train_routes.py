@@ -107,19 +107,32 @@ async def datasets_validate(
     request: Request,
     folder: str = Query(..., description="数据集目录（建议绝对路径）"),
     caption_ext: str = Query("txt", description="caption 后缀，不含点"),
+    check_resolution: bool = Query(False, description="真实解码每张图：暴露损坏/报告尺寸/标分辨率异常"),
+    min_size: int = Query(256, description="分辨率校验允许的最小边长"),
+    max_size: int = Query(2048, description="分辨率校验允许的最大边长"),
 ) -> dict[str, Any]:
-    """GET /api/train/datasets/validate?folder=<dir>&caption_ext=txt
+    """GET /api/train/datasets/validate?folder=<dir>&caption_ext=txt[&check_resolution=true]
 
-    训练前先校验数据集（图 + 同名 caption 齐全、caption 非空）——T-14 数据准备第一块。
+    训练前先校验数据集（图 + 同名 caption 齐全、caption 非空）——T-14 数据准备。
     只校验、不搬运、不改写；校验失败时返回 200 + 报告（``ok:false``），
     路径非法/目录不存在传参错误才返回 400。
+
+    ``check_resolution=true`` 时顺带真实解码每张图，报告 ``corrupt_images`` /
+    ``image_sizes`` / ``resolution_issues``（解码是 IO 重活，默认不跑）。
     """
     from pathlib import Path
 
     path = Path(folder)
     if not path.is_absolute():
         raise HTTPException(400, detail=f"folder 必须是绝对路径（收到 {folder!r}）")
-    report = validate_dataset(path, caption_ext=caption_ext, strict=False)
+    report = validate_dataset(
+        path,
+        caption_ext=caption_ext,
+        strict=False,
+        check_resolution=check_resolution,
+        min_size=min_size,
+        max_size=max_size,
+    )
     return report.to_dict()
 
 

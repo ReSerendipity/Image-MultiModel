@@ -335,6 +335,34 @@ def test_dataset_validate_ok(tmp_path):
     assert body["paired_count"] == 1
 
 
+def test_dataset_validate_check_resolution_reports_decode(tmp_path):
+    runner = FakeRunner(tmp_path / "training")
+    ds = tmp_path / "ds"
+    ds.mkdir()
+    from PIL import Image
+
+    Image.new("RGB", (512, 512), (10, 20, 30)).save(ds / "good.png")
+    (ds / "good.txt").write_text("cat", encoding="utf-8")
+    (ds / "bad.png").write_bytes(b"\x89PNG")  # 损坏
+    with _client_with(runner)[0] as c:
+        body = c.get(f"/api/train/datasets/validate?folder={ds}&check_resolution=true").json()
+    assert body["ok"] is False  # bad.png 损坏
+    assert body["corrupt_images"] == ["bad.png"]
+    assert body["image_sizes"]["good.png"] == [512, 512]
+
+
+def test_dataset_validate_default_does_not_decode(tmp_path):
+    runner = FakeRunner(tmp_path / "training")
+    ds = tmp_path / "ds"
+    ds.mkdir()
+    (ds / "bad.png").write_bytes(b"\x89PNG")  # 损坏，但默认不解码
+    (ds / "bad.txt").write_text("x", encoding="utf-8")  # 配对齐全
+    with _client_with(runner)[0] as c:
+        body = c.get(f"/api/train/datasets/validate?folder={ds}").json()
+    assert body["corrupt_images"] == []  # 默认不解码
+    assert body["ok"] is True
+
+
 def test_training_package_exports():
     """__init__ 的公开面（避免重构时把入口悄悄改名）。"""
     assert hasattr(training_pkg, "TrainJobSpec")

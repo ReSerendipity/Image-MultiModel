@@ -50,7 +50,7 @@
 | T-22 | Caption / Tagger 评估 | ✅ **2026-10-02 完成**：**不引入 SDNext**——改用 AI-Toolkit 内置 `extensions_built_in/captioner` + `dataset_tools`。例外：若将来要 WD14/DeepDanbooru 传统 tagger 需另接节点 | 无 |
 | T-12 | 训练模块设计 / 实现 | ✅ **2026-10-02 完成**：最小 Z-Image LoRA job **实跑通过（rc=0）**，产物 LoRA **可被 `native/lora.py` 加载** | 见下方「T-12 实跑记录」 |
 | T-13 | 训练 UI（轻前端 + 状态回写薄层） | ✅ **2026-10-03 完成**：编排薄层实装 + **真跑实证**（2 步 job rc=0，进度/产物/移交全链路通）；UI 面由 AI-Toolkit 自带前端承担，本仓只做编排与状态回写 | 无（见下方「T-13 编排薄层实装记录」） |
-| T-14 | 数据准备（训练前数据集就绪校验） | 🟡 **2026-10-03 启动**：新增 `training/dataset.py` + `/api/train/datasets/validate` + `scripts/validate_lora_dataset.py`，校验「图 + 同名 caption 齐全 / caption 非空」；真实 T-12 数据集实跑 rc=0、坏数据集 rc=1 | 后续：caption 生成 / 分辨率批量预检 / 多 caption 格式 |
+| T-14 | 数据准备（训练前数据集就绪校验） | 🟢 **2026-10-03 启动并完成两块**：① 文件级校验（图+同名 caption 齐全/非空）；② 解码级校验（Pillow 真实解码，暴露损坏图像 + 报告真实尺寸 + 标出分辨率越界） | 后续：caption 生成 / 多 caption 格式 |
 | T-14~T-16 | 其余训练相关（数据准备 / 采样 / 元数据） | ⬜ 未启动 | T-12 代码接入 |
 
 ## 阻塞 / 前置
@@ -162,6 +162,37 @@ diffusers 布局的 `to_q/to_k/to_v` 被 comfy **融合映射**到自己的 `qkv
 
 **口径边界**：只做文件级校验（图 + 同名 caption 存在且非空），**不解码图像查真实分辨率**（AI-Toolkit 会按 `resolution` 分桶下采样，分辨率不是数据集有效性的阻断项）；不改写、不搬运任何文件。
 
+## T-14 数据准备第二块（2026-10-03）：解码级分辨率/完整性预检
+
+**动机**：第一块只校验「文件存在 + caption 齐全」，但**文件后缀对 ≠ 内容是合法图像**——
+T-12 那类只用 `b"\x89PNG"` magic bytes 顶替的假图、下载截断图，会在训练进程里（22 分钟起步）
+才炸；同时数据集若混入远低于训练分辨率的碎片图，也该在提交前预警。本块补这块盲区。
+
+**设计取舍**：解码是 IO 重活，**默认不跑**——`validate_dataset(check_resolution=False)` 与旧口径
+完全一致（零 Pillow 依赖、零额外磁盘读），保持向后兼容；显式 `check_resolution=True`
+时才真实解码每张图。这样「日常快校验」与「提交前深校验」走同一 API 两档。
+
+**新增/扩展**：
+
+| 文件 | 变更 |
+|---|---|
+| `app/integrated_app/training/dataset.py` | `DatasetReport` 增 `corrupt_images` / `image_sizes` / `resolution_issues` 三字段 + `ok` 纳入「无损坏、无分辨率异常」；`validate_dataset` 增 `check_resolution / min_size=256 / max_size=2048`（keyword-only）；新增 `_inspect_image`（**函数内懒加载 Pillow**，解码失败即记为损坏，尺寸越界进 `resolution_issues`） |
+| `scripts/validate_lora_dataset.py` | 增 `--check-resolution` / `--min-size` / `--max-size`；解码异常（缺/空 caption 之外的损坏/分辨率）仍以 rc=1 暴露、rc=2 仍是传参错误 |
+| `app/integrated_app/routes/train_routes.py` | `GET /api/train/datasets/validate` 增 `check_resolution / min_size / max_size` query 参数，默认关 |
+| `tests/test_training_dataset.py` | +8 例（默认不解码忽略损坏 / 解码抓损坏 / 报告真实尺寸 / 分辨率越界 / 宽边界放行 / strict 抛损坏 / strict 抛分辨率 / to_dict 含新字段） |
+| `tests/test_train_routes.py` | +2 例（端点 `check_resolution=true` 回损坏+尺寸；默认不解码） |
+
+**语义铁律**（写进单测锁死）：
+- 损坏图像（`cannot identify image file`）**永远 fatal**——无论是否开启分辨率边界，只要解码过就记 `corrupt_images` 且 `ok=False`；`strict` 下抛 `DatasetError`。
+- 分辨率越界只在 `check_resolution=True` 时判定；用 `--min-size/--max-size` 放宽边界可放行（例：训练走分桶、允许小图时设 `--min-size 16`）。
+- 默认（`check_resolution=False`）路径**完全不碰 Pillow**、不计 `image_sizes`，与 T-14 第一块行为逐字节一致。
+
+**实测**（合成数据集：1×512² 真图 + 1×32² 真图 + 1×损坏假图，均配 caption）：
+- `validate_lora_dataset.py <dir>`（默认）→ `[OK] 数据集可用` rc=0（损坏图未解码故不报）；
+- `--check-resolution` → `corrupt_images=["bad.png"]` + `image_sizes` 真实尺寸 + `resolution_issues=["tiny.png 32x32（超出 [256,2048]）"]` → rc=1；
+- `--check-resolution --min-size 16 --max-size 4096` → 分辨率异常清空，损坏仍 fatal → rc=1。
+- 真实 T-12 数据集（4×512²）`--check-resolution` 实测全 OK（尺寸在边界内、无损坏）。
+
 ## 验收（本 P3 立项目标）
 
 - [x] T-34 决策记录（本文件 + README 索引）。
@@ -170,5 +201,5 @@ diffusers 布局的 `to_q/to_k/to_v` 被 comfy **融合映射**到自己的 `qkv
 - [x] T-28（sd-scripts LUMINA 深读：只吃 NextDiT_2B，且 `strict=False` 会静默错配）。
 - [x] T-12 代码接入：安装 AI-Toolkit → 最小 Z-Image LoRA job 跑通（rc=0）→ 产出 LoRA 能被 `native/lora.py` 加载（180 patches / 0 条未加载告警）。
 - [x] T-13 轻前端 / 状态回写薄层（2026-10-03：编排薄层实装 + 真跑实证 2 步 job rc=0；**UI 面采用 AI-Toolkit 自带前端，本仓只做编排与状态回写**，见「T-13 编排薄层实装记录」）。
-- [x] T-14 数据准备第一块（2026-10-03）：训练前数据集就绪校验 `training/dataset.py` + `/api/train/datasets/validate` + `scripts/validate_lora_dataset.py`；真实 T-12 数据集 CLI rc=0、坏数据集 rc=1。
+- [x] T-14 数据准备（2026-10-03，两块）：① 文件级校验 `training/dataset.py` + `/api/train/datasets/validate` + `scripts/validate_lora_dataset.py`（真实 T-12 数据集 CLI rc=0、坏数据集 rc=1）；② 解码级预检（`check_resolution` 真实解码，暴露损坏图像 + 报告真实尺寸 + 标出分辨率越界，默认不跑保持向后兼容）。
 - [ ] T-14~T-16（数据准备 / 采样 / 元数据）随 T-12 推进。

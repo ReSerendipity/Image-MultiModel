@@ -8,6 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from app.integrated_app.training.dataset import DatasetError, validate_dataset
 
@@ -24,6 +25,16 @@ def _make(folder: Path, *, paired: int = 0, missing: int = 0, empty: int = 0, ot
         (folder / f"empty_{i}.txt").write_text("", encoding="utf-8")  # 空 caption
     for i in range(other):
         (folder / f"notes_{i}.md").write_text("ignore me", encoding="utf-8")
+
+
+def _make_real(
+    folder: Path, name: str, size: tuple[int, int] = (64, 64), *, paired: bool = True, ext: str = "png"
+) -> None:
+    """造一张用 Pillow 真实编码的图像（可被解码校验解码）。"""
+    folder.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", size, (123, 45, 67)).save(folder / f"{name}.{ext}")
+    if paired:
+        (folder / f"{name}.txt").write_text("caption", encoding="utf-8")
 
 
 def test_missing_dir_reports_not_ok(tmp_path):
@@ -100,3 +111,72 @@ def test_to_dict_has_ok_key(tmp_path):
     d = validate_dataset(tmp_path / "ds").to_dict()
     assert d["ok"] is True
     assert d["image_count"] == 2
+
+
+# ── T-14 第二块：解码级校验（check_resolution）──
+def test_check_resolution_off_ignores_corrupt_by_default(tmp_path):
+    # 默认不解码：损坏图（仅 magic bytes）不应被标成 corrupt，caption 齐全则 ok 仍 True
+    _make(tmp_path / "ds", paired=1)
+    report = validate_dataset(tmp_path / "ds")
+    assert report.corrupt_images == []
+    assert report.image_sizes == {}
+    assert report.resolution_issues == []
+    assert report.ok is True
+
+
+def test_check_resolution_detects_corrupt(tmp_path):
+    _make(tmp_path / "ds", paired=1)  # 假 PNG，无法解码
+    report = validate_dataset(tmp_path / "ds", check_resolution=True)
+    assert report.corrupt_images == ["img_0.png"]
+    assert "img_0.png" not in report.image_sizes
+    assert report.ok is False
+
+
+def test_check_resolution_reports_real_sizes(tmp_path):
+    ds = tmp_path / "ds"
+    _make_real(ds, "a", size=(512, 512))
+    _make_real(ds, "b", size=(1024, 768))
+    report = validate_dataset(ds, check_resolution=True)
+    assert report.image_sizes["a.png"] == [512, 512]
+    assert report.image_sizes["b.png"] == [1024, 768]
+    assert report.corrupt_images == []
+    assert report.resolution_issues == []
+    assert report.ok is True
+
+
+def test_resolution_issue_flagged_below_min(tmp_path):
+    ds = tmp_path / "ds"
+    _make_real(ds, "tiny", size=(32, 32))
+    report = validate_dataset(ds, check_resolution=True)  # 默认边界 [256, 2048]
+    assert report.resolution_issues  # 非空
+    assert "tiny.png" in report.resolution_issues[0]
+    assert report.ok is False
+
+
+def test_resolution_issue_bypassed_with_wide_bounds(tmp_path):
+    ds = tmp_path / "ds"
+    _make_real(ds, "tiny", size=(32, 32))
+    report = validate_dataset(ds, check_resolution=True, min_size=16, max_size=4096)
+    assert report.resolution_issues == []
+    assert report.ok is True
+
+
+def test_strict_raises_on_corrupt(tmp_path):
+    _make(tmp_path / "ds", paired=1)  # 假 PNG
+    with pytest.raises(DatasetError, match="无法解码"):
+        validate_dataset(tmp_path / "ds", strict=True, check_resolution=True)
+
+
+def test_strict_raises_on_resolution(tmp_path):
+    ds = tmp_path / "ds"
+    _make_real(ds, "tiny", size=(32, 32))
+    with pytest.raises(DatasetError, match="分辨率超出"):
+        validate_dataset(ds, strict=True, check_resolution=True)
+
+
+def test_to_dict_includes_decode_fields(tmp_path):
+    _make(tmp_path / "ds", paired=1)
+    d = validate_dataset(tmp_path / "ds").to_dict()
+    assert "corrupt_images" in d and d["corrupt_images"] == []
+    assert "image_sizes" in d and d["image_sizes"] == {}
+    assert "resolution_issues" in d and d["resolution_issues"] == []
