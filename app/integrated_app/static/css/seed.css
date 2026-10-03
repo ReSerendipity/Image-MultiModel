@@ -524,3 +524,17 @@ pre.cfg{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:9px;co
 .app-confirm-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
 /* ===== P2-11 卡片 title 与类型标签层级分离 ===== */
 .r-meta .r-type{display:inline-block;background:var(--accent-soft, rgba(232,130,42,.12));color:var(--accent);border-radius:4px;padding:1px 6px;margin-bottom:2px;font-size:9px;font-weight:600;align-self:flex-start}
+/* ===== P2-4 CSP 补漏（v1.3.0 发版阶段1 实测发现）：style-src 'self' 会剥离服务端
+   HTML 的内联 style 属性。#appConfirm 原靠 style="display:none" 初始隐藏被 CSP
+   剥离，叠加 .app-confirm{display:flex} 导致空确认弹层常驻遮挡全页（P0）。
+   改为 CSS 默认隐藏；显示/隐藏由 app.js 的 CSSOM 属性赋值完成（不受 CSP 约束）。 */
+#appConfirm{display:none}
+/* 首次使用协议浮层（base.html）同规则类化：原 9 处内联样式全部迁移至此 */
+.imm-agreement{display:none;position:fixed;inset:0;z-index:9999;background:rgba(10,12,16,.72);align-items:center;justify-content:center}
+.imm-agreement-box{background:#fdfdfc;color:#17191b;max-width:540px;width:calc(100% - 48px);border:1px solid #c9c9c2;padding:26px 28px;font-size:13.5px;line-height:1.7}
+.imm-agreement-title{font-weight:600;font-size:16px;margin-bottom:10px}
+.imm-agreement-lead{margin:0 0 8px}
+.imm-agreement-link{color:#2f6f63}
+.imm-agreement-list{margin:0 0 10px;padding-left:18px}
+.imm-agreement-label{display:flex;gap:8px;align-items:flex-start;margin:12px 0}
+.imm-agreement-btn{width:100%;padding:9px 0;opacity:.5}

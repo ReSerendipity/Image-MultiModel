@@ -84,6 +84,13 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response: Response = await call_next(request)
 
+        # 静态资源强制再验证（2026-10-03 发版阶段1 实测）：uvicorn StaticFiles
+        # 不发 Cache-Control，浏览器按启发式缓存陈旧 CSS/JS——前端资产更新后
+        # 老用户最长约一天拿不到新样式（appConfirm P0 修复即因此未在旧标签页
+        # 生效）。no-cache = 允许存储但每次经 etag 再验证，本地服务 304 开销可忽略。
+        if request.url.path.startswith("/static/"):
+            response.headers.setdefault("Cache-Control", "no-cache")
+
         cfg = self._get_headers_config()
         # 未配置时安全默认为"开启"
         enabled = True if cfg is None else bool(getattr(cfg, "enabled", True))
