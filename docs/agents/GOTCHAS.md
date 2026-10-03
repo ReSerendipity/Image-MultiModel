@@ -198,4 +198,34 @@
 - **验证必须做到功能层**：① 键全覆盖（源 244 键 mapped 244 / unmapped 0）；② `load_state_dict(strict=True)` 零 missing/unexpected；③ **编解码重建 PSNR**（本次 40.24 dB；映射错会直接变噪声，PSNR 会崩到十几 dB 以下）。只比对键数会漏掉「键在但接错块」的静默错配。
 - **首次发现**：2026-10-02（VAE 转换实跑：latent `(1,16,32,32)` 与 Z-Image 的 16 通道 /8 下采样一致）
 
+### 48.1 训练进度不要爬 tqdm：`loss_log.db` 只在 `use_ui_logger=True` 时才存在
+
+- **触发场景**：训练薄层（T-13）要把「跑到第几步 / 当前 loss」回显给前端。
+- **现象**：① T-12 那个最小 job 的产物目录里**根本没有** loss 数据；② 想从 stdout 爬进度也不行——Windows 下 tqdm 是 `\r` 反复覆盖同一行，按行切分后只剩最后一条。
+- **根因**：`toolkit/logging_aitk.py::create_logger()` 只在 `logging.use_ui_logger=True` 时用 `UILogger` 把每步 metrics 写进 `<save_root>/loss_log.db`（`save_root = <training_folder>/<job name>`）。T-12 job 没开这个开关 → 没库。
+- **实测 schema**（`pragma table_info`，非猜的）：`steps(step INTEGER PRIMARY KEY, wall_time REAL)` / `metrics(step, key, value_real, value_text)` / `metric_keys(key, first_seen_step, last_seen_step)`。**且是 WAL 模式**（训练中能看到 `loss_log.db-wal`）。
+- **正确做法**：薄层渲染 job 时强制补 `"logging": {"use_ui_logger": True, "log_every": N}`（默认 10，太小会把库撑大），回读走 `sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=1.0)`；只读不抢写锁、也不会把 WAL 复制出来。**实测**：训练进程正在写时读照样出数；进程已退出后终态记录也能读到最后一步。库不存在/损坏一律降级 `present=False` 而不是让接口 500。
+
+### 48.2 `training_folder` 与 `save_root` 只能拼一层，记录里不要预存 `save_root`
+
+- **触发场景**：把「产物在哪」写进任务状态 JSON，图省事先拼好 `save_root` 存着。
+- **现象**：`handoff_plan` / `artifacts` 永远 `found=False`，终稿 LoRA 死活找不到。
+- **根因**：`handoff.final_lora_path(training_folder, name)` / `discover_artifacts` 内部都是「`training_folder` + `name`」语义（再拼一层 job 名）。runner 又预拼了一次 → 实际路径 `<job_dir>/<name>/<name>/`，不存在。
+- **正确做法**：状态记录**只存 `training_folder`**（与 AI-Toolkit 的同名键同义），`save_root` 现场用 `handoff.save_root()` 推导；判终稿用**名字精确相等**（`<name>.safetensors`），别按"最新文件"或"名字里含下划线"猜中间档——job 叫 `probe_lora` 时，按下划线判断会把**它自己的终稿**误判成中间档（测试当场抓到）。中间档另立一个 kind（`lora_intermediate`）单独统计。
+
+### 48.3 `Path("")` 会归一化成 `Path(".")`，`str(Path(x))` 的真假不能当"有没有值"
+
+- **触发场景**：`comfy_models_dir` 为空（shared 模式没配）时，要回退成 `<project_root>/loras`。
+- **现象**：写 `return (base / lora_name) if str(base) else project_root / "loras"` 本意是「有值走 base」，结果**永远走 base 分支**——因为 `Path("")` → `str()` 是 `"."`，**真值**。真跑实证：移交计划的 `target_dir` 变成了相对路径 `loras`（`loras\t13_probe.safetensors`），真拷文件会落到进程 cwd 下，而不是预置模型库。
+- **正确做法**：判空用**原始字符串**（`if base_raw: return Path(base_raw) / lora_name`），不要把 `Path("")` 的 `str()` 当布尔用。回归测试锁死 `lora_resource_dir(None, 绝对路径) .is_absolute()`。
+
+### 48.4 终态记录必须补刷一次进度，否则接口回"提交时那条空 progress"
+
+- **触发场景**：训练跑完（exit=0）后查状态，想看最后一步 loss。
+- **现象**：`status` 已是 `completed`，但 `progress.step` 仍是 `None` / `percent=0.0`，尽管 loss 库里明明有第 2 步。
+- **根因**：进度刷新 `_refresh_progress()` 只改内存里的临时 dict 并**不落盘**（只有超时失败那条路径会 `save`）；泵线程写终态记录时又没刷新 → 磁盘上那份记录从头到尾都是提交时的空 progress。
+- **正确做法**：`_JobProcess._pump()` 在按退出码定终态**之前**先 `self.runner._refresh_progress(record)`，`cancel()` 里同样补一次（取消时也要给出此刻真实进度）。
+
 | 47 | **判断「训练出的 LoRA 能不能被推理侧加载」，要看「未加载告警数」而不是 patch 数** | T-12 收口：验证 AI-Toolkit 产出的 Z-Image LoRA（480 键 = 240 模块 × `lora_A/lora_B`）能否被本仓 `native/lora.py` 走的 `comfy.sd.load_lora_for_models` 加载 | 实测 `patches = 180`，与 LoRA 的 240 个模块**对不上**（差 60）。差点误判成「60 个模块静默没生效」——实际是 comfy 的模型把 attention 权重**融合**成 `attention.qkv`（一个模块顶 diffusers 的 `to_q/to_k/to_v` 三个），`to_out.0`→`out`，所以 30 层 × 6 模块 = 180（240 − 30×2）。**真正可靠的判据是 comfy 打的 `lora key not loaded` 告警条数**（本次 **0 条**，说明 480 个键全部被消费） | ① 验证 LoRA 落地一律**双指标**：`len(patches)` + 「未加载告警条数」（`logging` 捕获 `lora key not loaded` 与 `NOT LOADED` 两类）；告警为 0 才是「内容全落地」；② patch 数小于 LoRA 模块数**不一定**是缺陷，先看推理侧模型是不是融合/重参数化布局（`named_parameters()` 打一遍末段分布即可对照）；③ 反过来，只看 patch 数（或只看「加载没报错」）会把「部分生效」与「融合映射」两种情况混为一谈——这正是 #45 那类静默错配的推理侧版本 | 2026-10-02（T-12 smoke job 产物验证：`zimage_lora_smoke.safetensors` 21.3 MB） |
+
+| 48 | **训练薄层（T-13）三条路径/状态坑：`loss_log.db` 依赖 `use_ui_logger`；`training_folder` 只能拼一层；``Path('')`` 归一化成 ``Path('.')`` 让移交计划变成相对路径；终态记录没补刷进度 → ``progress.step`` 恒 None** | ① 薄层要回显训练进度；② 把产物目录预拼进状态记录；③ shared 模式下 ``comfy_models_dir`` 为空时回退 LoRA 目录；④ 训练跑完后查状态想看最后一步 loss | ① 开 `logging.use_ui_logger=True` 才有 ``<save_root>/loss_log.db``（schema `steps/metrics/metric_keys`，WAL），回读走 ``mode=ro`` 只读连接；爬 tqdm 是死路（Windows 下 `` 覆盖同一行）。② 状态记录**只存** ``training_folder``，``save_root`` 现场 ``handoff.save_root()`` 推导；判终稿用名字精确相等，中间档另立 ``lora_intermediate`` kind。③ 判空用**原始字符串**不用 ``str(Path(''))``（后者是 ``'.'`` 真值），否则移交目标退化成相对路径 ``loras``，真拷会落到进程 cwd。④ 泵线程定终态前必须补一次进度刷新。 | 2026-10-03（T-13 真跑实证：2 步 job `rc=0`，``status → 1/2 步 percent=50``，终态后暴露 ``progress.step=None`` 与 ``target_dir='loras'`` 两个真缺陷，均已修 + 回归测试锁死；详见 #48.1~48.4） |
