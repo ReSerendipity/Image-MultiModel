@@ -161,6 +161,29 @@ async def _health_check_impl(request: Request) -> dict[str, Any]:
     return _health_payload
 
 
+@router.get("/system/health")
+async def system_health_check(request: Request) -> dict[str, Any]:
+    """
+    GET /api/system/health — 桌面壳就绪契约端点（19dec0d B-2）
+
+    壳（desktop/src-tauri/src/health_check.rs）以此路径做装后就绪探测并解析
+    ``security.integrity``（篡改告警）。此前该路径不存在，被 SPA catch-all
+    吞掉返回 index.html（200 text/html）→ 壳 JSON 解析恒失败 → 桌面装后
+    永远「启动超时」（v1.3.0 发版阶段3 真机实测 P1，2026-10-03）。
+    """
+    payload = await _health_check_impl(request)
+    integrity = getattr(request.app.state, "integrity_selfcheck", None) or {}
+    payload["security"] = {
+        "integrity": {
+            "checked": bool(integrity.get("checked", False)),
+            "failed": int(integrity.get("failed", 0) or 0),
+            "failed_files": list(integrity.get("failed_files", []) or []),
+            "manifest_signed": bool(integrity.get("manifest_signed", False)),
+        }
+    }
+    return payload
+
+
 @router.get("/events")
 async def sse_events(request: Request) -> StreamingResponse:
     """
