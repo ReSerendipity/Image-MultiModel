@@ -1,0 +1,227 @@
+# Image MultiModel .gitignore
+
+# ── Python ──────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ── Virtual Environment ──────────────────────────────────────
+venv/
+.venv/
+env/
+ENV/
+
+# ── IDE ─────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.catpaw/
+.trae/
+
+# AI 工具本地状态（记忆/计划，仅本地保留，不上远程）
+.workbuddy-ai/
+.zcode/
+
+# AI 规范（仅本地保留，不上远程，家族统一约定）
+AGENTS.md
+
+# 内部/本地规则（仅本地保留，不上远程，避免暴露本地信息）
+LOCAL_RULES.md
+
+# ── Testing ─────────────────────────────────────────────────
+.pytest_cache/
+.pytest_tmp/
+.coverage
+htmlcov/
+
+# ── Data & Output ────────────────────────────────────────────
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/uploads/
+data/cache/
+# 训练编排薄层的运行时目录：状态 JSON / job.yaml / stdout.log / loss_log.db / 训练产物
+# （由 app/integrated_app/training 在运行时生成，含大体积 LoRA 与 optimizer，禁止入库）
+data/training/
+# 权重 SHA256 清单（TOFU 基线，机器特定——权重经 junction 指向本机模型库，勿入库）
+data/weight_manifest.json
+# 便携模型库（junction 指向本机 ComfyUI 模型目录；正式分发包由 pack_portable.ps1 复制实体文件）
+pretrained_models/
+# api_token bootstrap 生成的本机令牌（见 security/auth_bootstrap.py）
+.api_token
+outputs/
+logs/
+backups/
+
+# 本地独享文档（治理/分析报告，仅本地保留、不上远程，2026-09-02）
+docs/
+
+# ── Model Files (大文件不提交) ──────────────────────────────
+*.safetensors
+*.pt
+*.bin
+*.ckpt
+*.gguf
+
+# ── OS ──────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── SSL ─────────────────────────────────────────────────────
+bin/cert.pem
+bin/key.pem
+
+# ── .env（P1-3: 敏感配置不提交）──────────────────────────────
+.env
+
+# ── Temporary files（§5.2 清理）─────────────────────────────────────
+*.txt
+!requirements.txt
+!requirements-lock.txt
+!examples/prompts.txt
+!PRD.md
+!MASTER_PLAN.md
+!WEBAPP_GUIDE.md
+!TEST_AUDIT_REPORT.md
+!AUDIT_REPORT_2.0.md
+!REMAINING_TASKS_REPORT.md
+.trash/
+pytest_out*.txt
+gen*.txt
+fp_out*.txt
+
+# CI 修复交接日志（本地账本，不入库）
+FIX_LOG.md
+
+# ── Checkpoints ─────────────────────────────────────────────
+data/checkpoints/
+
+# ── Docker ──────────────────────────────────────────────────
+docker-compose.override.yml
+
+# Auto-captured screenshots (output of tests/capture-screenshots.js)
+/screenshots/
+
+# 水印签名密钥（仅本机，严禁入库/随包分发）
+.watermark_key
+
+# 清单签名密钥（任务书 P0：签发机私钥，严禁入库/随包分发；公钥 manifest_signing_public_key.pem 随仓库入库）
+data/.manifest_signing_key
+data/.imm_secret
+data/watermark_audit.log
+
+# ── Hypothesis property-based testing ───────────────────────
+.hypothesis/
+
+# ── Jupyter notebooks checkpoints ───────────────────────────
+.ipynb_checkpoints/
+*.ipynb
+
+# ── Coverage and profiling (扩展) ────────────────────────────
+.coverage.*
+.coverage.xml
+coverage.xml
+htmlcov/
+cover/
+coverage/
+*.prof
+prof/*.prof
+
+# ── Benchmark results ────────────────────────────────────────
+perf/results/*.json
+perf/results/*.html
+!perf/results/.gitkeep
+
+# ── Temporary build artifacts ────────────────────────────────
+*.pyc
+__pycache__/
+dist/
+build/
+*.egg-info/
+
+# Cloned learning repos (research reference only, not part of project)
+references/
+
+# Vendored Comfy inference kernel (独立内核项目源码，维持为其独立 git 仓库，不并入本仓库)
+comfy_kernel/
+
+.git.backup/
+
+# 自进化协议细化文档（仅本地保留，不并入仓库）
+docs/agents/
+
+# Agent 工作区（WorkBuddy 会话记忆，仅本地保留）
+.workbuddy/
+
+# .git 损坏恢复现场备份（保留在磁盘，永不入库）
+.git.corrupted-*/
+
+# 数据治理对账工具的历史库备份（reconcile_db_disk --apply 产物）
+data/*.bak
+
+# 前端测试产物（依赖与渲染快照）
+tests/node_modules/
+tests/frontend/_rendered/
+data/config_audit.log
+
+# --- 2026-09-07 守卫暴露的遗漏（缓存目录）---
+.ruff_cache/
+.mypy_cache/
+
+# --- auto-tidy: 运行时产物自动补齐 (auto) ---
+.benchmarks/
+
+desktop/src-tauri/tauri.key
+
+# 发布构建产物（增量包/分卷）
+release/packages/
+desktop/src-tauri/target/
+
+# 安装器本地编译产物（不入库）
+desktop/installer/ImageMultiModel.exe
+desktop/installer/ImageMultiModel-Setup-v*.exe
+
+# 学习/报告备忘（本地，不入库，2026-09-12）
+学习报告任务备忘_20260912.md
+
+# AI IDE 本地工作目录（仅本地保留，不上远程）
+.qoder/
+# 根目录健康文件由组织级仓库提供（self-purify 检查②），本地不入库
+CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+SUPPORT.md
+
+# ===== ↑ 以上同步自 .gitignore（「从 .gitignore 同步」只重写以上部分）=====
+.git/
+.hg/
+.svn/
+node_modules/
+bower_components/
+jspm_packages/
+site-packages/
+lcov-report/
+cmakefiles/
+cmake-build-*/
+bazel-*/
+pods/
+deriveddata/
+storybook-static/
+playwright-report/
+test-results/
+allure-results/
+allure-report/
+cdk.out/
+*.dist-info/
+eggs/
+pip-wheel-metadata/
+wheels/
+# ----- ↑ 以上为 ZCode 默认排除规则（自定义规则请写在本行下方，不会被同步/恢复改动）-----
+# 自定义规则写在下方（本行提示可删除）
