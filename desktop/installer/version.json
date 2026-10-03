@@ -1,6 +1,6 @@
 {
-    "changelog":  "桌面化首发",
-    "version":  "1.2.2",
-    "release_date":  "2026-09-10",
+    "changelog":  "v1.3.0：三处版本位同步（config.yaml 权威位），桌面分发层与 L2 增量包对齐",
+    "version":  "1.3.0",
+    "release_date":  "2026-10-03",
     "minimum_shell_version":  "1.0.0"
 }

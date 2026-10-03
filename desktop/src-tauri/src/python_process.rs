@@ -251,7 +251,18 @@ pub fn emit_startup_status(app: &AppHandle, message: &str, error: Option<String>
 
 /// 解析运行时目录：优先侧载 runtime，开发模式回退项目 .venv，再退系统 Python
 pub fn resolve_runtime_dir(app_dir: &Path) -> PathBuf {
-    // 1. 打包后：应用目录下的 runtime/
+    // 1. 打包后（分层定案布局）：安装根下的 runtime/（app/ 的兄弟目录）
+    //    v1.3.0 修复：壳 1.0.0 只认 app/runtime/，与桌面分发分层定案 §2 的
+    //    <安装根>/runtime/ 布局不符，导致装后 Python 永远无法启动（P1，
+    //    v1.3.0 阶段3 真机安装模拟实测发现）。
+    if let Ok(exe) = std::env::current_exe() {
+        let sibling = exe.parent().unwrap().join("runtime");
+        if sibling.join("python.exe").exists() {
+            return sibling;
+        }
+    }
+
+    // 1b. 打包后（历史布局）：应用目录下的 runtime/
     let bundled = app_dir.join("runtime");
     if bundled.join("python.exe").exists() {
         return bundled;
