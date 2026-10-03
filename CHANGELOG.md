@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## \[Unreleased]
 
+## \[1.3.0] - 2026-10-03
+
 ### Added
 
 - **增量包 Ed25519 签名链（2026-09-11 收口）**：`scripts/package_app.py` 打包即对 `app-v{ver}.zip` 签 Ed25519（`.sig.ed25519`，复用完整性清单密钥对，零新依赖；`--no-sign` 调试逃生门）；`scripts/release_gate.py` gate-5 对每个增量包回验签。

@@ -55,7 +55,7 @@ class TestConfigLoading:
 
     def test_app_config_builds(self, app_config):
         """AppConfig 构建成功"""
-        assert app_config.version == "1.2.2"
+        assert app_config.version == "1.3.0"
         assert app_config.server.host == "127.0.0.1"
         assert app_config.server.port == 8288
         assert app_config.models.model_source_mode in ("shared", "portable")
@@ -107,8 +107,7 @@ class TestConfigLoading:
         mfmt = config_yaml["security"]["model_format"]
         cfilter = config_yaml["security"]["content_filter"]
         assert mfmt["fail_closed_on_corrupt_weight"] is True, (
-            "发行配置不得把 fail_closed_on_corrupt_weight 置 false："
-            "否则损坏/被篡改权重被静默跳过而非拒绝加载"
+            "发行配置不得把 fail_closed_on_corrupt_weight 置 false：否则损坏/被篡改权重被静默跳过而非拒绝加载"
         )
         assert cfilter["fail_closed_on_clip_missing"] is True, (
             "发行配置不得把 fail_closed_on_clip_missing 置 false：否则 CLIP 缺失时图片扫描静默放行"
@@ -119,14 +118,8 @@ class TestConfigLoading:
             ModelFormatConfig,
         )
 
-        assert (
-            mfmt["fail_closed_on_corrupt_weight"]
-            == ModelFormatConfig().fail_closed_on_corrupt_weight
-        )
-        assert (
-            cfilter["fail_closed_on_clip_missing"]
-            == ContentFilterConfig().fail_closed_on_clip_missing
-        )
+        assert mfmt["fail_closed_on_corrupt_weight"] == ModelFormatConfig().fail_closed_on_corrupt_weight
+        assert cfilter["fail_closed_on_clip_missing"] == ContentFilterConfig().fail_closed_on_clip_missing
 
 
 class TestResolveModelPath:
@@ -230,6 +223,7 @@ class TestPathGuard:
     def test_safe_path_allowed(self, project_root):
         """安全路径通过"""
         from integrated_app.security.path_guard import PathGuard
+
         guard = PathGuard(["outputs/", "data/"], project_root)
         path = guard.resolve("outputs/test.png")
         assert str(path).endswith("test.png")
@@ -237,6 +231,7 @@ class TestPathGuard:
     def test_path_traversal_blocked(self, project_root):
         """路径穿越被拒绝"""
         from integrated_app.security.path_guard import PathGuard
+
         guard = PathGuard(["outputs/"], project_root)
         with pytest.raises(Exception):
             guard.resolve("../../../etc/passwd")
@@ -244,6 +239,7 @@ class TestPathGuard:
     def test_absolute_path_outside_blocked(self, project_root):
         """绝对路径在白名单外被拒绝"""
         from integrated_app.security.path_guard import PathGuard
+
         guard = PathGuard(["outputs/"], project_root)
         with pytest.raises(Exception):
             guard.resolve("C:/Windows/System32/config/SAM")
@@ -251,6 +247,7 @@ class TestPathGuard:
     def test_is_safe(self, project_root):
         """is_safe 不抛异常"""
         from integrated_app.security.path_guard import PathGuard
+
         guard = PathGuard(["outputs/", "data/"], project_root)
         assert guard.is_safe("outputs/test.png") is True
         assert guard.is_safe("../../etc/passwd") is False
@@ -262,6 +259,7 @@ class TestHistoryDB:
     @pytest.fixture
     def db(self, tmp_path):
         from integrated_app.history_db import HistoryDB
+
         d = HistoryDB(tmp_path / "test_history.db")
         yield d
         d.close()
