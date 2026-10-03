@@ -251,12 +251,20 @@ class GenerationService:
         cfg = self._config
         engine_name = req.engine_name or cfg.models.default_engine
 
-        # 幂等：同一 key 命中则复用首次任务（P3-10）
+        # 幂等：同一 key 命中则复用首次任务（P3-10）——纯缓存命中不产生新任务，
+        # 故排在空提示词拒绝之前（重放一个已受理的旧任务与本次 prompt 是否为空无关）。
         if req.idempotency_key:
             cached = _idempotency_get(req.idempotency_key)
             if cached is not None:
                 logger.info("Idempotent replay for key=%s -> task %s", req.idempotency_key, cached)
                 return GenerateResponse(task_id=cached, deduplicated=True)
+
+        # 空/纯空白提示词拒绝（v1.3.0 发版阶段1 实测 P2：直连 /api/generate 曾
+        # 接受空串，任务入队白占 GPU 产出无意义图；agent 路径的 guard 已拒绝，
+        # 此处补 UI/直连 API 的最终闸。批次 base_config 合法留空，故不在模型层校验）。
+        if not req.positive_prompt or not req.positive_prompt.strip():
+            record_generation_rejected("empty_prompt")
+            raise HTTPException(422, detail="positive_prompt 不能为空")
 
         # 引擎存在性
         if engine_name not in cfg.models.engines:

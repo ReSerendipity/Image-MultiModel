@@ -13,7 +13,7 @@ import logging
 import time
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from ..config import get_config
@@ -182,6 +182,28 @@ async def system_health_check(request: Request) -> dict[str, Any]:
         }
     }
     return payload
+
+
+@router.post("/system/shutdown")
+async def system_shutdown(request: Request) -> dict[str, Any]:
+    """桌面壳优雅停机（B-5，v1.3.0 补全）。
+
+    壳（desktop/src-tauri/src/python_process.rs）关闭时先请求本端点让后端
+    优雅退出（排空队列、关 DB、落 WAL），失败再硬杀进程树。此前该路由从未实现，
+    壳的裸 POST 被 CSRF 中间件 403 挡下（幻影契约，GOTCHAS #53 同型）；现按普通
+    CSRF 保护端点实现——壳走 double-submit（GET /api/health 拿 token，再带
+    cookie + X-CSRF-Token 头 POST）。触发 uvicorn 优雅退出后 lifespan 关停段
+    会 ``await task_queue.stop()`` + 关 DB（app_server.py lifespan）。
+    """
+    logger.warning("收到桌面壳优雅停机请求，触发 uvicorn 优雅退出")
+    import signal
+
+    try:
+        signal.raise_signal(signal.SIGINT)
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"优雅停机信号发送失败: {e}")
+        raise HTTPException(status_code=500, detail="shutdown failed") from e
+    return {"status": "shutting_down"}
 
 
 @router.get("/events")

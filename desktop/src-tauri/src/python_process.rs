@@ -10,7 +10,10 @@ use std::os::windows::process::CommandExt;
 use crate::port_manager::find_free_port;
 
 /// 请求 Python 服务本机优雅关闭（桌面端 B-5）。
-/// 用裸 TcpStream 发 HTTP POST，避免为 reqwest 引入 blocking 依赖。
+/// 用裸 TcpStream 走 HTTP CSRF double-submit（GET /api/health 取 token →
+/// POST 带 cookie + X-CSRF-Token 同值），避免为 reqwest 引入 blocking 依赖。
+/// 后端 `/api/system/shutdown` 是普通 CSRF 保护端点（v1.3.0 补全，此前不存在
+/// 导致本 POST 恒 403、优雅关闭形同虚设，见 GOTCHAS #53 同型幻影契约）。
 fn request_graceful_shutdown(port: u16) -> bool {
     use std::io::{Read, Write};
     use std::net::TcpStream;
@@ -19,18 +22,49 @@ fn request_graceful_shutdown(port: u16) -> bool {
     let Ok(addr) = format!("127.0.0.1:{port}").parse::<std::net::SocketAddr>() else {
         return false;
     };
-    let Ok(mut stream) = TcpStream::connect_timeout(&addr, Duration::from_millis(800)) else {
+    // 1) GET /api/health 取 CSRF token（中间件在 GET 响应头下发 X-CSRF-Token）
+    let token = {
+        let Ok(mut s) = TcpStream::connect_timeout(&addr, Duration::from_millis(800)) else {
+            return false;
+        };
+        let _ = s.set_read_timeout(Some(Duration::from_millis(1500)));
+        let req = format!(
+            "GET /api/health HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
+        );
+        if s.write_all(req.as_bytes()).is_err() {
+            return false;
+        }
+        let mut buf = Vec::new();
+        if s.read_to_end(&mut buf).is_err() {
+            return false;
+        }
+        let head = String::from_utf8_lossy(&buf);
+        let headers = head.split("\r\n\r\n").next().unwrap_or("");
+        let mut tok = String::new();
+        for line in headers.lines() {
+            if let Some(rest) = line.to_ascii_lowercase().strip_prefix("x-csrf-token:") {
+                tok = rest.trim().to_string();
+                break;
+            }
+        }
+        if tok.is_empty() {
+            return false;
+        }
+        tok
+    };
+    // 2) POST /api/system/shutdown 带 double-submit（cookie 与 header 同值）
+    let Ok(mut s) = TcpStream::connect_timeout(&addr, Duration::from_millis(800)) else {
         return false;
     };
+    let _ = s.set_read_timeout(Some(Duration::from_millis(1500)));
     let req = format!(
-        "POST /api/system/shutdown HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        "POST /api/system/shutdown HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nCookie: csrf_token={token}\r\nX-CSRF-Token: {token}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
     );
-    if stream.write_all(req.as_bytes()).is_err() {
+    if s.write_all(req.as_bytes()).is_err() {
         return false;
     }
-    let _ = stream.set_read_timeout(Some(Duration::from_millis(1500)));
     let mut buf = [0u8; 128];
-    let _ = stream.read(&mut buf);
+    let _ = s.read(&mut buf);
     true
 }
 

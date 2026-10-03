@@ -80,18 +80,17 @@ class TestGenerateRoutes:
         r = client.post("/api/generate", json=self._valid_payload())
         assert r.status_code in (200, 409), f"Expected 200 or 409, got {r.status_code}: {r.text[:200]}"
 
-    def test_generate_empty_prompt_returns_200(self, client):
-        """空 prompt 允许通过（后端不做强制校验）"""
+    def test_generate_empty_prompt_returns_422(self, client):
+        """空 prompt 拒绝（v1.3.0 发版期修复：直连 /api/generate 不再放行空串白占 GPU）"""
         r = client.post("/api/generate", json=self._valid_payload(positive_prompt=""))
-        # 可能被 CLIP 检测拦截，也可能正常提交
-        assert r.status_code in (200, 409, 400), f"Unexpected status: {r.status_code}"
+        assert r.status_code == 422, f"Expected 422 for empty prompt, got {r.status_code}"
 
     def test_generate_missing_positive_prompt_field(self, client):
-        """缺少 positive_prompt 字段（完全缺失）→ 200（Pydantic 默认值为空串）"""
+        """缺少 positive_prompt 字段（Pydantic 默认空串）→ 422（同空串口径）"""
         payload = self._valid_payload()
         del payload["positive_prompt"]
         r = client.post("/api/generate", json=payload)
-        assert r.status_code in (200, 409), f"Expected 200 or 409, got {r.status_code}"
+        assert r.status_code == 422, f"Expected 422 for missing prompt, got {r.status_code}"
 
     def test_generate_null_positive_prompt_returns_422(self, client):
         """positive_prompt 为 null → 422（类型错误）"""
