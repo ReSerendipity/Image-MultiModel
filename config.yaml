@@ -48,16 +48,16 @@ models:
         sub_path: Z_image(turbo)/qwen_3_4b_fp8_mixed.safetensors
       unet:
         sub_dir: unet
-        sub_path: Z-image_turbo-bf16/zimageTurboNSFWByStable_2602NSFWFP8.safetensors
+        sub_path: Z-image-turbo/z_image_turbo_int8_convrot.safetensors
       vae:
         sub_dir: vae
-        sub_path: FLUX.1-dev(Z-image(turbo))/ae.safetensors
+        sub_path: Z_image(turbo)/ae.safetensors
       model_id: ''
       local_model_dir: ''
       vram_gb: 10.0
       ram_gb: 16.0
-      default_precision: fp8
-      fallback_precision: fp8
+      default_precision: int8
+      fallback_precision: int8
       supported_features:
       - txt2img
       - lora_stack_6
@@ -75,8 +75,8 @@ models:
       - turbo
       - native
       - low-vram
-      weight_sha256: ebecd4fd3e55988150be5fc567eb54406fad3ca05b8b902756cf948fa78f4fc4
-      weight_version: auto-sha256:ebecd4fd3e55
+      weight_sha256: be517ebd47c912a5626a588e1aeea43e6be4a43c0cdcd2b48a2a780d9f358635
+      weight_version: auto-sha256:be517ebd47c9
       training_data_source: ''
       compatibility_matrix: {}
     qwen_image_edit_native:
