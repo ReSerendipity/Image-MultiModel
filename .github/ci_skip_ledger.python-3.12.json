@@ -1,23 +1,21 @@
 {
   "_comment": "CI skip 台账：Test + Coverage (Python 3.12) 的 junit skip 分布基线。语义是精确相等——条数变多=新增未登记 skip，变少=登记过的 skip 悄悄消失，两者都必须走红 PR 改台账，不许把门禁放宽成 warning。",
   "source": {
-    "event": "push (main, post #102/#103)",
-    "run_id": 36146886840,
-    "artifact_id": 10870137971,
+    "event": "push (main)",
+    "run_id": 37171686096,
     "artifact": "junit-python-3.12",
-    "head": "e33dbb4",
-    "observed": "1061 用例 / 891 执行出结论 / 170 skip / 0 失败",
-    "collected_utc": "2026-09-25",
-    "history": "首次由 pull_request #102 run 36130556510 的产物生成（1054/884/170）；本条改用合并后的 push 产物，与 #102 自己新增的 7 条单测合并计数一致"
+    "head": "9278f8b",
+    "observed": "1462 用例 / 1234 执行出结论 / 228 skip / 0 失败",
+    "collected_utc": "2026-10-04",
+    "history": "v1.3.0 发版期重采：① conftest _comfy_available 增加 vendored comfy_kernel 源码检查 + 跳过范围扩展到 tests/native/ 整目录（原生栈 skip 150→206）；② 登记两条此前漏登记的原因（_INJECTION_PATTERNS 中文越狱缺口、symlink 不支持）；③ min_executed 850→1150（收集总数 1061→1462）"
   },
-  "cross_check": "夜间 9 轮（09-17..09-25）skip 恒 170、极差 0；同一提交 e33dbb4 上 3.12 与 3.13 的逐原因分布完全相同（8 条、170、891）——相同是巧合还是约束尚未知，故两份台账分文件各自绑定产物，由 python_version 防接错。",
-  "total_skips_expected": 170,
-  "min_executed": 850,
+  "total_skips_expected": 228,
+  "min_executed": 1150,
   "reasons": [
     {
       "key": "原生引擎栈不可用",
-      "count": 150,
-      "note": "tests/test_native_*.py + test_generate_routes.py + test_preprocessors.py。文案说「缺 PyTorch 或 comfy_aimdo」，但 runner 是按 requirements.txt 全量装的、torch 在位，真实驱动是 comfy_aimdo（ComfyUI 原生栈）不可导入 —— 属维护期红线（不装 Comfy/GPU 栈），不是文案 bug；若哪天有人改这条 message，门禁会红并逼一次台账更新。"
+      "count": 206,
+      "note": "tests/native/ 整目录（引擎测试 + 各引擎 weight-point-at-real-files + vlm comfy 路径）在 CI 上因缺 vendored comfy_kernel/真权重整体跳过（v1.3.0 起 _ENGINE_OK 含 vendored 源码检查，跳过范围覆盖 tests/native/）"
     },
     {
       "key": "ComfyUI 不在线",
@@ -27,7 +25,12 @@
     {
       "key": "清单签名私钥",
       "count": 4,
-      "note": "tests/test_manifest_signing.py —— data/.manifest_signing_key 仅签发机持有、不入库，真实签名路径只在签发机上验。"
+      "note": "tests/test_manifest_signing.py —— data/.manifest_signing_key 仅签发机持有、不入库。"
+    },
+    {
+      "key": "已知缺口：_INJECTION_PATTERNS",
+      "count": 1,
+      "note": "注入测试集仅覆盖英文模式，中文越狱说法未纳入（P2 遗留，不臆造规则）。"
     },
     {
       "key": ".venv 不存在",
@@ -48,6 +51,11 @@
       "key": "真实 8B",
       "count": 1,
       "note": "同上：真实 8B 推理过重。"
+    },
+    {
+      "key": "当前环境不支持创建符号链接",
+      "count": 1,
+      "note": "ubuntu runner 无 symlink 权限语义，用例自检跳过。"
     },
     {
       "key": "data/cache",
