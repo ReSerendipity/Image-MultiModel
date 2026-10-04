@@ -77,13 +77,21 @@ def _torch_is_functional() -> bool:
 
 
 def _comfy_available() -> bool:
-    """检测原生引擎运行所需的 comfy 扩展是否可用。"""
+    """检测原生引擎运行所需的 comfy 扩展是否可用。
+
+    两项缺一不可：pip 包 ``comfy_aimdo``（comfy 运行扩展）+ 仓库内 vendored
+    ``comfy_kernel/comfy`` 源码。v1.3.0 发版期修复：comfy_kernel 被 gitignore
+    不随检出分发，此前只查 pip 包导致 CI（装了 torch+comfy_aimdo）上
+    tests/native/ 下依赖 vendored 源码的测试（test_vlm_engine_comfy_path 等）
+    以 RuntimeError 爆炸而非优雅跳过（Release 工作流 tag 推送实测）。
+    """
     try:
         import comfy_aimdo  # noqa: F401
 
-        return True
     except Exception:  # pragma: no cover - 依赖缺失
         return False
+    vendored = Path(__file__).resolve().parents[1] / "comfy_kernel" / "comfy"
+    return vendored.is_dir()
 
 
 _TORCH_OK = _torch_is_functional()
@@ -107,10 +115,15 @@ def pytest_collection_modifyitems(config, items):
     """
     if _ENGINE_OK:
         return
-    skip_marker = pytest.mark.skip(reason="原生引擎栈不可用（缺 PyTorch 或 comfy_aimdo），跳过引擎相关测试")
+    skip_marker = pytest.mark.skip(reason="原生引擎栈不可用（缺 PyTorch 或 comfy 内核源码），跳过引擎相关测试")
     for item in items:
         name = Path(item.path).name
-        if name.startswith("test_native_") or name in _NATIVE_TEST_FILES:
+        # tests/native/ 整目录都依赖原生引擎栈或本机权重（v1.3.0 修复：
+        # 此前按文件名前缀过滤，test_vlm_engine_comfy_path / 各引擎
+        # weight-point-at-real-files 等文件漏网，CI 无 vendored 源码/权重时炸红）
+        norm_path = str(item.path).replace("\\", "/")
+        in_native_dir = "/tests/native/" in norm_path
+        if in_native_dir or name.startswith("test_native_") or name in _NATIVE_TEST_FILES:
             item.add_marker(skip_marker)
 
 

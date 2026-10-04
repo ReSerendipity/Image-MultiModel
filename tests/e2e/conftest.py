@@ -27,6 +27,18 @@ def base_url():
     return os.environ.get("E2E_BASE_URL", "http://127.0.0.1:8288")
 
 
+@pytest.fixture(autouse=True)
+def _preset_agreement(page):
+    """预置「首次使用协议」同意状态（v1.3.0 发版期修复）。
+
+    全新浏览器 profile 无 localStorage，base.html 的使用前须知浮层
+    （z-index 9999）会挡住一切点击 → E2E 全线 click 超时（09-15 浮层上线后
+    E2E 实际处于长期破损态）。add_init_script 必须在首次导航前注册。
+    """
+    page.context.add_init_script("try{localStorage.setItem('image_mm:agreement:v1','2026-09-15')}catch(e){}")
+    yield
+
+
 @pytest.fixture(scope="session")
 def screenshots_dir(tmp_path_factory):
     """截图目录（视觉回归基础）"""

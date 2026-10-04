@@ -47,7 +47,8 @@ ok(/escHtml\(e\.display_name\)/.test(src), 'renderStatEngines 用 escHtml(e.disp
 ok(/escHtml\(st\)/.test(src), 'renderStatEngines 用 escHtml(st) 转义引擎状态');
 
 // M-06 (3) renderBatchQueue：服务端返回的 r.detail（错误回显）
-ok(/escHtml\(r\.detail\|\|'批次不存在或已过期'\)/.test(src), 'renderBatchQueue 用 escHtml(r.detail) 转义错误回显');
+// 2026-10-04：兜底文案已 i18n 化（tr('batch_not_found')），转义属性不变，断言同步更新
+ok(/escHtml\(r\.detail\|\|tr\('batch_not_found'\)\)/.test(src), 'renderBatchQueue 用 escHtml(r.detail) 转义错误回显');
 
 console.log('\nXSS REGRESSION RESULT: pass=' + pass + ' fail=' + fail);
 process.exit(fail ? 1 : 0);
