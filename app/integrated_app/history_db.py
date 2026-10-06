@@ -198,7 +198,10 @@ class HistoryDB:
         -- 软删除 / 回收站（防误删）：NULL=未删，非空=删除时间戳，可恢复
         deleted_at       TEXT DEFAULT NULL,
         -- 提交→worker 边界最小关联键：提交侧 HTTP request_id（日志 req= 同源）
-        request_id       TEXT DEFAULT ''
+        request_id       TEXT DEFAULT '',
+        -- 用户反馈打分（MLOps M6 反馈闭环）：-1=踩 / 0=未评 / 1=赞。
+        -- 旧库由 _migrate_v7_rating_column 补齐。
+        rating           INTEGER DEFAULT 0
     );
 
     -- 输出表（一对多）
@@ -296,9 +299,10 @@ class HistoryDB:
     # 数据库 schema 单调版本号（数据治理报告 P2-4）。
     # 1 = 基线 schema；2 = tasks 血缘增强列；3 = outputs.sha256 输出指纹；
     # 4 = tasks.deleted_at 软删除；5 = tasks.request_id 提交→worker 关联键；
-    # 6 = FTS 触发器显式 rowid + trigram 重建（修复更新后任务从搜索消失）。
+    # 6 = FTS 触发器显式 rowid + trigram 重建（修复更新后任务从搜索消失）；
+    # 7 = tasks.rating 用户反馈打分列（MLOps M6 反馈闭环）。
     # 迁移步骤见 _migrations()；改基线 schema 或加列时必须同步 +1 并注册迁移。
-    SCHEMA_VERSION = 6
+    SCHEMA_VERSION = 7
 
     def __init__(self, db_path: str | Path) -> None:
         self.db_path = Path(db_path)
@@ -340,6 +344,7 @@ class HistoryDB:
             (4, self._migrate_v4_soft_delete),
             (5, self._migrate_v5_request_id),
             (6, self._migrate_v6_fts_rowid_alignment),
+            (7, self._migrate_v7_rating_column),
         )
 
     def _migrate_v5_request_id(self, conn: sqlite3.Connection) -> None:
@@ -347,6 +352,16 @@ class HistoryDB:
         existing = {r[1] for r in conn.execute("PRAGMA table_info(tasks)").fetchall()}
         if "request_id" not in existing:
             conn.execute("ALTER TABLE tasks ADD COLUMN request_id TEXT DEFAULT ''")
+
+    def _migrate_v7_rating_column(self, conn: sqlite3.Connection) -> None:
+        """v7：tasks 表补齐 rating 列（MLOps M6 用户反馈闭环）。
+
+        取值约定：-1=踩 / 0=未评 / 1=赞。默认 0（未评），不破坏既有 5766 行数据。
+        幂等：列已存在则 no-op。
+        """
+        existing = {r[1] for r in conn.execute("PRAGMA table_info(tasks)").fetchall()}
+        if "rating" not in existing:
+            conn.execute("ALTER TABLE tasks ADD COLUMN rating INTEGER DEFAULT 0")
 
     def _migrate_v6_fts_rowid_alignment(self, conn: sqlite3.Connection) -> None:
         """v6：FTS 触发器显式对齐 rowid + trigram 重建索引。
@@ -744,6 +759,21 @@ class HistoryDB:
         conn.execute(
             "UPDATE tasks SET favorite=?, updated_at=datetime('now') WHERE task_id=?",
             (1 if favorite else 0, task_id),
+        )
+        conn.commit()
+
+    def set_rating(self, task_id: str, rating: int) -> None:
+        """设置任务用户反馈打分（MLOps M6 反馈闭环）。
+
+        Args:
+            task_id: 任务 id。
+            rating: -1=踩 / 0=未评 / 1=赞。其它值会被 clamp 到 [-1, 1]。
+        """
+        rating = max(-1, min(1, int(rating)))
+        conn = self.conn
+        conn.execute(
+            "UPDATE tasks SET rating=?, updated_at=datetime('now') WHERE task_id=?",
+            (rating, task_id),
         )
         conn.commit()
 
