@@ -232,3 +232,55 @@ def test_cancel_writes_terminal_state(runner, spec, tmp_path, monkeypatch):
 
 def test_cancel_missing_job_is_false(runner):
     assert runner.cancel("nope") is False
+
+
+# ── MLOps M2: 训练侧环境取证随 job 落盘 ─────────────────────
+def test_capture_aitk_provenance_records_fields(monkeypatch, tmp_path):
+    """capture_aitk_provenance 在三个子进程都成功时返回全字段。"""
+    from app.integrated_app.training.runner import capture_aitk_provenance
+
+    aitk = tmp_path / "aitk"
+    aitk.mkdir()
+    calls: list[list[str]] = []
+
+    def fake_check_output(cmd, **_kw):
+        calls.append(cmd)
+        if cmd[0] == "git":
+            return "abc1234\n"
+        if "torch" in cmd[-1]:
+            return "2.4.0+cu121\n"
+        return "3.12.7\n"
+
+    monkeypatch.setattr("subprocess.check_output", fake_check_output)
+    prov = capture_aitk_provenance(aitk, "/fake/python")
+    assert prov["aitk_root"] == str(aitk)
+    assert prov["aitk_commit"] == "abc1234"
+    assert prov["aitk_python_version"] == "3.12.7"
+    assert prov["aitk_torch_version"] == "2.4.0+cu121"
+    assert len(calls) == 3
+
+
+def test_capture_aitk_provenance_degrades_on_failure(monkeypatch, tmp_path):
+    """任何子进程失败都降级为 unknown，绝不抛异常（不能因为取不到就挡掉训练）。"""
+    from app.integrated_app.training.runner import capture_aitk_provenance
+
+    def boom(*_a, **_kw):
+        raise OSError("boom")
+
+    monkeypatch.setattr("subprocess.check_output", boom)
+    prov = capture_aitk_provenance(tmp_path / "nope", "/fake/python")
+    assert prov["aitk_commit"] == "unknown"
+    assert prov["aitk_python_version"] == "unknown"
+    assert prov["aitk_torch_version"] == "unknown"
+
+
+def test_submit_records_environment_provenance(runner, spec, tmp_path, monkeypatch):
+    """submit() 落盘的 record 里必须带 environment 块（M2 端到端）。"""
+    _fake_backend(runner, tmp_path, monkeypatch)
+    import app.integrated_app.training.runner as rm
+
+    monkeypatch.setattr(rm, "capture_aitk_provenance", lambda *_a: {"aitk_commit": "deadbeef"})
+    rec = runner.submit(spec)
+    assert rec["environment"] == {"aitk_commit": "deadbeef"}
+    stored = runner.load(str(rec["job_id"]))
+    assert stored is not None and stored["environment"]["aitk_commit"] == "deadbeef"
