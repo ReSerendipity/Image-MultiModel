@@ -177,6 +177,8 @@ class TrainingRunner:
                 "training_folder": training_folder,
                 "aitk_root": str(aitk_root),
                 "python": python,
+                # MLOps M2: 训练侧环境指纹随 job 落盘（best-effort，失败字段为 unknown）
+                "environment": capture_aitk_provenance(aitk_root, python),
                 "spec": spec.to_dict(),
                 # 进度字段：由 status() 每次回读 loss 库回填
                 "progress": {"step": None, "latest": {}, "history": []},
@@ -390,3 +392,60 @@ def aitk_root_env() -> str | None:
 def python_env() -> str | None:
     """训练解释器（环境变量 ``AITK_PYTHON``）；未设置时调用方回退 ``sys.executable``。"""
     return os.environ.get("AITK_PYTHON") or None
+
+
+def capture_aitk_provenance(aitk_root: Path, python: str) -> dict[str, str]:
+    """捕获训练侧 AI-Toolkit 环境指纹，随 job 记录落盘（MLOps M2）。
+
+    背景：训练由外部 ``AITK_ROOT``/``AITK_PYTHON`` 承担，本仓 requirements 不锁其
+    torch/transformers 版本。一旦 AI-Toolkit 仓库或解释器升级，老 LoRA 产物能否被
+    本仓 ``native/lora.py`` 加载就失去了可追溯证据。本函数在提交时一次性记录：
+
+    - ``aitk_commit``：``aitk_root`` 的 ``git rev-parse HEAD``（若它是 git 仓库）；
+    - ``aitk_python_version``：训练解释器的 ``sys.version`` 首段；
+    - ``aitk_torch_version``：训练解释器里 ``torch.__version__``（best-effort，
+      torch 未装/导不到时为 ``unknown``，不阻断提交）。
+
+    任何子进程失败都降级为对应字段 ``unknown``，**绝不抛异常阻断训练提交**——
+    取证是锦上添花，不能因为取不到就挡掉一个要跑几十分钟的 job。
+    """
+    import subprocess
+
+    prov: dict[str, str] = {
+        "aitk_root": str(aitk_root),
+        "aitk_commit": "unknown",
+        "aitk_python_version": "unknown",
+        "aitk_torch_version": "unknown",
+    }
+    try:
+        out = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(aitk_root),
+            stderr=subprocess.DEVNULL,
+            timeout=10,
+            text=True,
+        )
+        prov["aitk_commit"] = out.strip() or "unknown"
+    except Exception:  # noqa: BLE001 - best-effort：任何失败都降级 unknown，不挡提交
+        pass
+    try:
+        out = subprocess.check_output(
+            [python, "-c", "import sys;print(sys.version.split()[0])"],
+            stderr=subprocess.DEVNULL,
+            timeout=15,
+            text=True,
+        )
+        prov["aitk_python_version"] = out.strip() or "unknown"
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        out = subprocess.check_output(
+            [python, "-c", "import torch;print(torch.__version__)"],
+            stderr=subprocess.DEVNULL,
+            timeout=20,
+            text=True,
+        )
+        prov["aitk_torch_version"] = out.strip() or "unknown"
+    except Exception:  # noqa: BLE001
+        pass
+    return prov
