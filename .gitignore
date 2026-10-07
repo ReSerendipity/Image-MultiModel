@@ -198,3 +198,33 @@ desktop/installer/ImageMultiModel-Setup-v*.exe
 CONTRIBUTING.md
 CODE_OF_CONDUCT.md
 SUPPORT.md
+
+# --- 敏感信息防泄露（Git 版本控制安全工程与防泄露最佳实践指南 v1.1 第二章/第八章，2026-10-07）---
+# 说明：本仓已有 .env / data/*.db / logs/ / bin/cert.pem 等按路径的忽略规则，这里只补「任何目录」的兜底。
+# 公钥 app/integrated_app/security/manifest_signing_public_key.pem 须随仓库入库，故不写 *.pem / *.key 通配。
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+*.env
+service-account.json
+*.p12
+*.pfx
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+credentials.json
+credentials.yaml
+credentials.yml
+secrets.json
+secrets.yaml
+secrets.yml
+*.sqlite
+*.sqlite3
+*.db
+*.log
+server.pem
+server.key
+.aws/
+.gcloud/
