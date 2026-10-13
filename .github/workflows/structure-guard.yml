@@ -35,3 +35,25 @@ jobs:
           else
             echo "scripts/check_spec_refs.py not present; skipping"
           fi
+
+  # 禁区/高影响路径强制评审守卫：按 CODEOWNERS 的 RESTRICTED 区块过滤本次 PR 变更文件，
+  # 触碰即判红（硬阻断），需维护者显式放行（标签 restricted-approved 或 RESTRICTED_APPROVED=1）。
+  # 这是「被跟踪」的仓内强制层；GitHub 侧 required review from CODEOWNERS 属外部授权，需在
+  # 分支保护里另行开启，两者叠加。仅在 pull_request 上跑（push main 为 admin 直推豁免）。
+  restricted-paths:
+    name: Restricted-path review guard
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 需要 base/head 两个提交都在本地才能算出 PR 变更集；浅克隆会触发守卫 fail-closed。
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Guard restricted zones
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python .github/scripts/check_restricted_paths.py

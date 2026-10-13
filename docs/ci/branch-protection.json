@@ -1,10 +1,10 @@
 {
   "_comment": "分支保护单一来源。改这里 → 跑 python docs/ci/apply_branch_protection.py --apply。contexts 须与 .github/workflows/ci.yml 的 job name 逐字一致；e2e/performance 两个 job 因波动暂不作必需检查，其余 ci.yml job 全部阻断。",
   "owner": "ReSerendipity",
-  "repo": "Image_MultiModel",
+  "repo": "Image-MultiModel",
   "branch": "main",
   "policy": {
-    "required_approving_review_count": 0,
+    "required_approving_review_count": 1,
     "dismiss_stale_reviews": true,
     "require_code_owner_reviews": false,
     "require_last_push_approval": false,
@@ -34,9 +34,11 @@
     "Post-Deploy Smoke Drill (P2-11)",
     "Docker Build & Start Smoke (P0-1)",
     "Immutable Release Artifacts (P1-10)",
-    "security-assertions"
+    "security-assertions",
+    "Lock Solvability (pip resolver dry-run)",
+    "DCO Check"
   ],
   "required_conversation_resolution": false,
-  "_measured_at": "2026-09-28T10:25Z（gh api repos/ReSerendipity/Image_MultiModel/branches/main/protection，启用 PR 要求 + enforce_admins=false）",
+  "_measured_at": "2026-09-28T10:25Z 首测；2026-10-07 复核校正：① repo 字段旧名 Image_MultiModel → Image-MultiModel（仓库已改名，GET 会跟随 307 重定向所以漂移检测一直“看起来正常”，但 PUT 不跟随，导致 --apply 实际写不进去）；② policy.required_approving_review_count 0 → 1，与本文件 _meets_reality/bypass_note 及 live 实测一致（GitHub 该字段最小值即为 1）；③ contexts 补 Lock Solvability (pip resolver dry-run) 与 DCO Check 两条——它们已在 live 与 ci.yml/dco.yml 的 job name 中真实存在，按本文件 _comment「contexts 须与 job name 逐字一致」补全，避免 --apply 把他人新增的必需检查静默摘掉。",
   "_meets_reality": "live 已改为：require PR(1 approval) + enforce_admins=false；owner/admin 直推 main 免 PR，其余账号强制 PR。"
 }

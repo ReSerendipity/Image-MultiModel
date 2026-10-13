@@ -3,25 +3,27 @@
 # 安全相关改动需经安全复核，确保任何改动都被看见。
 # 格式：<路径> <负责人>（GitHub 用户名或团队）
 #
-# 本文件所有路径均已按 origin/main 的实际文件树逐条核对（2026-09-23）。
+# 本文件所有路径均已按 origin/main 的实际文件树逐条核对（2026-09-23；
+# 禁区/高影响路径补充核对 2026-10-06）。
 # 当前仓库仅一名协作者，因此每条规则实际都解析到 @ReSerendipity，
 # 分区目前不改变路由结果；保留的价值在于：新增协作者或接入机器人时
 # 可以按区收窄授权，而不必重新摸索哪些路径敏感。
+#
+# 「被跟踪的强制评审」：下方 RESTRICTED 区块声明的禁区/签名路径，由
+# .github/scripts/check_restricted_paths.py 在 structure-guard CI 中按路径过滤
+# 强制执行（PR 触碰即判红，需维护者显式放行 RESTRICTED_APPROVED=1 或 PR 标签
+# restricted-approved 才放行）。GitHub 侧真正的 required review from CODEOWNERS
+# 属外部授权，需在仓库分支保护里另行开启；两者叠加。本区块是脚本的单一事实来源
+# （脚本解析 BEGIN/END 之间的路径前缀），接入独立评审团队时把 owner 从
+# @ReSerendipity 换成该团队即可，无需再改脚本。
 # ============================================================
 
 # 全局默认 —— 所有 PR 默认指派
 * @ReSerendipity
 
-# 安全核心模块（含清单签名、鉴权、CSRF、完整性自检）
-app/integrated_app/security/ @ReSerendipity
-app/integrated_app/middleware/auth.py @ReSerendipity
-app/integrated_app/middleware/csrf.py @ReSerendipity
-
-# 密钥与签名工具链
+# 密钥与配置
 .env* @ReSerendipity
 config.yaml @ReSerendipity
-scripts/sign_integrity_manifest.py @ReSerendipity
-scripts/generate_manifest_signing_key.py @ReSerendipity
 
 # 安全策略与门禁声明
 .github/SECURITY.md @ReSerendipity
@@ -31,3 +33,30 @@ SECURITY_MATRIX.md @ReSerendipity
 
 # 构建与发布脚本
 scripts/build* @ReSerendipity
+
+# === RESTRICTED:BEGIN  以下前缀由 check_restricted_paths.py 解析并强制评审（勿改标记行） ===
+# 禁区 / 高影响路径（对齐 docs/agents/ARCH_MAP.md「🚫 禁区目录表」+ 签名/完整性工具链）。
+# 每行：<路径前缀> <owner>；脚本取首个空白分隔 token 作为受控前缀，owner 供 GitHub CODEOWNERS 解析。
+# 注：comfy_kernel/ 与 pretrained_models/ 被 .gitignore 排除、不入本仓跟踪面，正常 PR 不会出现其
+# 文件；此处声明为防御性覆盖（若以 --force 强推或未来纳入跟踪即生效），与禁区政策口径一致。
+comfy_kernel/ @ReSerendipity
+app/integrated_app/security/ @ReSerendipity
+app/integrated_app/middleware/auth.py @ReSerendipity
+app/integrated_app/middleware/csrf.py @ReSerendipity
+release/ @ReSerendipity
+demo/assets/ @ReSerendipity
+model/ @ReSerendipity
+pretrained_models/ @ReSerendipity
+backups/ @ReSerendipity
+scripts/sign_integrity_manifest.py @ReSerendipity
+scripts/generate_manifest_signing_key.py @ReSerendipity
+scripts/generate_integrity_manifest.py @ReSerendipity
+scripts/check_integrity_manifest.py @ReSerendipity
+scripts/generate_weight_manifest.py @ReSerendipity
+scripts/init_watermark_key.py @ReSerendipity
+scripts/verify_watermark.py @ReSerendipity
+scripts/release_gate.py @ReSerendipity
+scripts/split_release_volumes.py @ReSerendipity
+scripts/build_release_metadata.py @ReSerendipity
+release-signing-public-key.asc @ReSerendipity
+# === RESTRICTED:END ===
