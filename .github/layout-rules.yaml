@@ -45,7 +45,8 @@ gitignored_expect:
   - .torch_cache
   - .trae
   - .idea
-  - .qoder
+  # .qoder 于 2026-10-06 起改为「.qoder/* + !.qoder/rules/」：规则层随仓库分发（干净克隆 / CI
+  # 检出的 agent 指令入口），目录不再整体被忽略；保留此期望只会产生误导性 WARN。
   - htmlcov
   - .gradle
   - .kotlin
@@ -65,6 +66,9 @@ root_allowlist:
   - .gitignore
   - .mailmap
   - .pre-commit-config.yaml
+  # 2026-10-06：.qoder/rules/（可分发 agent 基线指令层）入库后，.qoder 不再是“完全本地”条目，
+  # 显式登记到 allowlist（其余 .qoder/* 子项仍由 .gitignore 忽略）。
+  - .qoder
   - CHANGELOG.md
   - Dockerfile
   - LICENSE

@@ -193,7 +193,10 @@ desktop/installer/ImageMultiModel-Setup-v*.exe
 学习报告任务备忘_20260912.md
 
 # AI IDE 本地工作目录（仅本地保留，不上远程）
-.qoder/
+# 例外（2026-10-06）：.qoder/rules/ 是**随仓库分发**的 agent 基线指令层——根 AGENTS.md 与 docs/agents/
+# 明细文档仅本地保留，干净克隆 / CI 检出里唯一可读到的约束入口就是这个目录，故显式放行。
+.qoder/*
+!.qoder/rules/
 # 根目录健康文件由组织级仓库提供（self-purify 检查②），本地不入库
 CONTRIBUTING.md
 CODE_OF_CONDUCT.md

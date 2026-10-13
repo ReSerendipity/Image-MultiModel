@@ -245,6 +245,8 @@ playwright install chromium
 python -m pytest tests/e2e -m e2e
 ```
 
+> 🤖 **AI / 自动化协作约束（可分发层）**：随仓库发布的恒需约束（禁区路径清单、主测试/lint/type 命令、入口与端口）见 `.qoder/rules/agent-baseline.md`，机器可验证的公开硬约束全文见 [docs/AGENT_CONSTRAINTS.md](docs/AGENT_CONSTRAINTS.md)。更细的自进化协议 / SOP / 修订记录由维护者本地保留，**未随仓库发布**。
+
 ---
 
 ## 模型许可说明

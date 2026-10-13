@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""规范文件（AGENTS.md / README.md）引用一致性门禁——双模：仓内自检 + 家族增强层。
+"""规范文件（AGENTS.md / README.md / .qoder/rules/agent-baseline.md）引用一致性门禁——双模：仓内自检 + 家族增强层。
 
 背景（better-harness 发现）：旧版本脚本只是外部家族审计器（.spec_audit）的极薄包装，
 在干净 CI checkout 中因找不到审计器而直接输出 "skip" 并以 0 退出——于是
@@ -44,7 +44,14 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve()
 REPO_ROOT = HERE.parents[1]
-DEFAULT_DOCS = ("AGENTS.md", "README.md")
+DEFAULT_DOCS = (
+    "AGENTS.md",  # 本地保留（被 .gitignore 排除）：CI 检出里不存在 → 记为 skip，不判失败
+    "README.md",
+    # 可分发 agent 基线指令层（随仓库发布，干净克隆 / CI 检出必然存在）。
+    # 纳入自检是为了让这一层的仓内路径引用同样受门禁约束，而不是写完就烂——
+    # 因此这里出现的仓内路径一律必须是**被 git 跟踪**的路径（本地保留文档只用自然语言指代）。
+    ".qoder/rules/agent-baseline.md",
+)
 
 # ── 抽取：inline code（单/双反引号）+ markdown 相对链接目标 ──────────────
 _CODE_SPAN_RE = re.compile(r"(?<!`)`{1,2}(?!`)(.+?)(?<!`)`{1,2}(?!`)")

@@ -3,6 +3,9 @@
 #   1) 仓库有 .pre-commit-config.yaml 且 pre-commit 框架可用 -> 交给框架
 #   2) 否则 -> 交给同目录的 pre-commit-lite（大文件/密钥/冲突标记 + 根目录守卫）
 # 0) 路径可移植性检查：阻止本机绝对路径入库（规则见 docs/CODING_STANDARDS.md 第 1 节）
+# 0.5) AGENTS.md/README 仓内引用完整性自检（严格模式）：AGENTS.md 铁律 #6「证据绑定」的本地权威门禁。
+#      AGENTS.md 被 .gitignore 排除、干净 CI 检出不含此文件，故其引用只能在本地（文件存在时）校验；
+#      CI 侧不覆盖本文件的引用完整性。触发判据是「工作区存在 AGENTS.md」而非「staged 变更」。
 if [ -f scripts/check_no_hardcoded_paths.py ]; then
     PY_BIN=""
     for c in python python3; do
@@ -13,6 +16,27 @@ if [ -f scripts/check_no_hardcoded_paths.py ]; then
             echo "[pre-commit] 检测到本机绝对路径（C:\Users\... 等），提交已拒绝。绕过：git commit --no-verify" >&2
             exit 1
         fi
+    fi
+fi
+# 0.5) 规范文件（AGENTS.md/README）仓内路径引用完整性自检——严格模式（AGENTS.md 铁律 #6「证据绑定」）。
+#      工作区存在 AGENTS.md 即每次提交执行；引用失效当场拦截。无 python 时降级为显式告警（尽力而为，不阻断）。
+if [ -f AGENTS.md ] && [ -f scripts/check_spec_refs.py ]; then
+    SPEC_PY=""
+    for cand in ".venv/Scripts/python.exe" ".venv/bin/python"; do
+        [ -x "$cand" ] && SPEC_PY="$cand" && break
+    done
+    if [ -z "$SPEC_PY" ]; then
+        for c in python python3; do
+            command -v "$c" >/dev/null 2>&1 && SPEC_PY="$c" && break
+        done
+    fi
+    if [ -n "$SPEC_PY" ]; then
+        if ! "$SPEC_PY" scripts/check_spec_refs.py --self --strict; then
+            echo "[pre-commit] AGENTS.md/README 引用完整性自检未通过（存在失效路径引用），提交已拒绝。修复失效引用后重试；绕过：git commit --no-verify" >&2
+            exit 1
+        fi
+    else
+        echo "[pre-commit] 未找到 Python，check_spec_refs 仓内自检未执行 —— 本轮 AGENTS.md 引用未校验！" >&2
     fi
 fi
 if [ -f .pre-commit-config.yaml ]; then
